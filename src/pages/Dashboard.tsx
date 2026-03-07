@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
-import { AlertTriangle, Navigation, Activity, ShieldAlert, MapPin, Search, Layers, X, Clock, Settings2, Plus, Minus, Crosshair } from 'lucide-react';
+import { AlertTriangle, Navigation, Activity, ShieldAlert, MapPin, Search, Layers, X, Clock, Settings2, Plus, Minus, Crosshair, ChevronLeft, ChevronRight, Home } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import { useNavigate } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -80,6 +81,7 @@ function MapController({ center, zoom }: { center: [number, number], zoom: numbe
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [emergencyMode, setEmergencyMode] = useState(false);
   const [tripProgress, setTripProgress] = useState(0);
   const [vehicles, setVehicles] = useState<Record<string, any>>({});
@@ -102,6 +104,9 @@ export default function Dashboard() {
   const [showPreferences, setShowPreferences] = useState(false);
   const [mapZoom, setMapZoom] = useState(12);
   const [mapCenter, setMapCenter] = useState<[number, number]>(center);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [destinationCoords, setDestinationCoords] = useState<[number, number] | null>(null);
 
   // Mock route from center to AIIMS
   const mockRoute: [number, number][] = [
@@ -175,12 +180,55 @@ export default function Dashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    
+    const query = searchQuery.toLowerCase();
+    const results: any[] = [];
+    
+    // Search static hospitals
+    hospitals.forEach(h => {
+      if (h.name.toLowerCase().includes(query)) {
+        results.push({ id: `h-${h.name}`, name: h.name, type: 'Hospital', lat: h.pos[0], lng: h.pos[1] });
+      }
+    });
+    
+    // Search fetched facilities
+    facilities.forEach(f => {
+      const name = f.tags?.name || '';
+      if (name.toLowerCase().includes(query)) {
+        let typeName = "Hospital";
+        if (f.tags?.amenity === 'pharmacy') typeName = "Pharmacy";
+        else if (f.tags?.amenity === 'clinic' || f.tags?.amenity === 'doctors') typeName = "Clinic";
+        else if (f.tags?.amenity === 'veterinary') typeName = "Veterinary";
+        
+        // Avoid duplicates if static hospital is also in fetched facilities
+        if (!results.some(r => r.name === name)) {
+          results.push({ id: f.id, name: name, type: typeName, lat: f.lat, lng: f.lon });
+        }
+      }
+    });
+    
+    setSearchResults(results.slice(0, 5));
+  }, [searchQuery, facilities]);
+
+  const handleSelectFacility = (facility: any) => {
+    setSearchQuery(facility.name);
+    setSearchResults([]);
+    setMapCenter([facility.lat, facility.lng]);
+    setMapZoom(16);
+    setDestinationCoords([facility.lat, facility.lng]);
+  };
+
   const calculateRoute = async () => {
     setRouteCalculated(true);
     
     try {
       const origin = `${center[0]},${center[1]}`;
-      const destination = `${hospitals[0].pos[0]},${hospitals[0].pos[1]}`;
+      const destination = destinationCoords ? `${destinationCoords[0]},${destinationCoords[1]}` : `${hospitals[0].pos[0]},${hospitals[0].pos[1]}`;
       
       let avoidParams = [];
       if (avoidTolls) avoidParams.push('tolls');
@@ -244,6 +292,17 @@ export default function Dashboard() {
       {/* Sidebar */}
       <div className="w-80 bg-zinc-900 border-r border-zinc-800 flex flex-col">
         <div className="p-6 border-b border-zinc-800">
+          <div className="flex items-center gap-2 mb-4">
+            <button onClick={() => navigate(-1)} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Go Back">
+              <ChevronLeft size={16} />
+            </button>
+            <button onClick={() => navigate(1)} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Go Forward">
+              <ChevronRight size={16} />
+            </button>
+            <button onClick={() => navigate('/')} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors ml-auto" title="Go Home">
+              <Home size={16} />
+            </button>
+          </div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <ShieldAlert className="text-red-500" />
             SafeRoute <span className="text-red-500">AI</span>
@@ -366,9 +425,26 @@ export default function Dashboard() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
                   <input 
                     type="text" 
-                    placeholder="Destination (e.g. City Hospital)" 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search hospitals, clinics..." 
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-red-500 transition-colors"
                   />
+                  
+                  {searchResults.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl overflow-hidden z-50">
+                      {searchResults.map(res => (
+                        <button
+                          key={res.id}
+                          onClick={() => handleSelectFacility(res)}
+                          className="w-full text-left px-4 py-2 hover:bg-zinc-800 flex flex-col transition-colors border-b border-zinc-800/50 last:border-0"
+                        >
+                          <span className="text-sm font-medium text-zinc-200">{res.name}</span>
+                          <span className="text-xs text-zinc-500">{res.type}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button 
                   onClick={calculateRoute}

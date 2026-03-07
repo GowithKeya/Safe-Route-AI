@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Phone, MapPin, ShieldAlert, Navigation, Sun, Moon, AlertTriangle } from 'lucide-react';
+import { Phone, MapPin, ShieldAlert, Navigation, Sun, Moon, AlertTriangle, Layers, Plus, Minus, Crosshair } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -75,6 +75,20 @@ function decodePolyline(encoded: string) {
   return points;
 }
 
+// Map Controller Component
+function MapController({ center, zoom }: { center: [number, number], zoom: number }) {
+  const map = useMap();
+  
+  useEffect(() => {
+    map.flyTo(center, zoom, {
+      animate: true,
+      duration: 1.5
+    });
+  }, [center, zoom, map]);
+
+  return null;
+}
+
 export default function SOS() {
   const [sosActive, setSosActive] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -83,6 +97,9 @@ export default function SOS() {
   const [nearestFacility, setNearestFacility] = useState<any | null>(null);
   const [eta, setEta] = useState<string | null>(null);
   const [distance, setDistance] = useState<string | null>(null);
+  const [showTraffic, setShowTraffic] = useState(false);
+  const [mapZoom, setMapZoom] = useState(13);
+  const [mapCenter, setMapCenter] = useState<[number, number]>(center);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -290,19 +307,25 @@ export default function SOS() {
         </div>
 
         {/* Map Section */}
-        <div className={`w-full h-[500px] lg:h-[600px] rounded-2xl overflow-hidden shadow-2xl border ${isDark ? 'border-zinc-800' : 'border-zinc-200'}`}>
+        <div className={`w-full h-[500px] lg:h-[600px] rounded-2xl overflow-hidden shadow-2xl border relative ${isDark ? 'border-zinc-800' : 'border-zinc-200'}`}>
           <MapContainer 
-            center={center} 
-            zoom={13} 
+            center={mapCenter} 
+            zoom={mapZoom} 
             style={{ width: '100%', height: '100%' }}
             zoomControl={false}
           >
+            <MapController center={mapCenter} zoom={mapZoom} />
             <TileLayer
-              url={isDark 
-                ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+              url={showTraffic 
+                ? "https://mt1.google.com/vt/lyrs=m,traffic&x={x}&y={y}&z={z}"
+                : isDark 
+                  ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                  : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
               }
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+              attribution={showTraffic 
+                ? '&copy; Google Maps'
+                : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+              }
             />
 
             {/* Current Location Marker */}
@@ -348,6 +371,46 @@ export default function SOS() {
               />
             )}
           </MapContainer>
+
+          {/* Map Controls */}
+          <div className="absolute right-4 bottom-4 flex flex-col gap-2 z-[1000]">
+            <button 
+              onClick={() => setShowTraffic(!showTraffic)}
+              className={`p-3 rounded-xl shadow-lg border backdrop-blur-sm transition-all group ${
+                showTraffic 
+                  ? 'bg-blue-500 text-white border-blue-400' 
+                  : isDark ? 'bg-zinc-900/90 text-white border-zinc-800/50 hover:bg-zinc-800' : 'bg-white/90 text-zinc-900 border-zinc-200/50 hover:bg-zinc-100'
+              }`}
+              title="Toggle Traffic Layer"
+            >
+              <Layers size={20} />
+            </button>
+            <button 
+              onClick={() => {
+                setMapCenter(center);
+                setMapZoom(14);
+              }}
+              className={`p-3 rounded-xl shadow-lg border backdrop-blur-sm transition-all group ${isDark ? 'bg-zinc-900/90 text-white border-zinc-800/50 hover:bg-zinc-800' : 'bg-white/90 text-zinc-900 border-zinc-200/50 hover:bg-zinc-100'}`}
+              title="Center on my location"
+            >
+              <Crosshair size={20} className="group-hover:text-red-500 transition-colors" />
+            </button>
+            
+            <div className={`rounded-xl shadow-lg border backdrop-blur-sm overflow-hidden flex flex-col mt-2 ${isDark ? 'bg-zinc-900/90 border-zinc-800/50' : 'bg-white/90 border-zinc-200/50'}`}>
+              <button 
+                onClick={() => setMapZoom(prev => Math.min(prev + 1, 18))}
+                className={`p-3 transition-colors border-b ${isDark ? 'text-white hover:bg-zinc-800 border-zinc-800/50' : 'text-zinc-900 hover:bg-zinc-100 border-zinc-200/50'}`}
+              >
+                <Plus size={20} />
+              </button>
+              <button 
+                onClick={() => setMapZoom(prev => Math.max(prev - 1, 3))}
+                className={`p-3 transition-colors ${isDark ? 'text-white hover:bg-zinc-800' : 'text-zinc-900 hover:bg-zinc-100'}`}
+              >
+                <Minus size={20} />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
