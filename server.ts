@@ -21,7 +21,7 @@ async function startServer() {
   });
 
   app.get('/api/directions', async (req, res) => {
-    const { origin, destination } = req.query;
+    const { origin, destination, avoid, preference } = req.query;
     const apiKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
     
     if (!apiKey) {
@@ -29,8 +29,28 @@ async function startServer() {
     }
     
     try {
-      const response = await fetch(`https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&departure_time=now&key=${apiKey}`);
+      let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&departure_time=now&key=${apiKey}`;
+      
+      if (avoid) {
+        url += `&avoid=${avoid}`;
+      }
+      
+      if (preference === 'shortest') {
+        url += `&alternatives=true`;
+      }
+      
+      const response = await fetch(url);
       const data = await response.json();
+      
+      if (preference === 'shortest' && data.routes && data.routes.length > 1) {
+        // Sort routes by distance
+        data.routes.sort((a: any, b: any) => {
+          const distA = a.legs[0].distance.value;
+          const distB = b.legs[0].distance.value;
+          return distA - distB;
+        });
+      }
+      
       res.json(data);
     } catch (error) {
       console.error("Error fetching directions:", error);
@@ -39,8 +59,27 @@ async function startServer() {
   });
 
   // Socket.io for live tracking
+  const simulatedVehicles = [
+    { id: 'FIRE-204', type: 'fire', lat: 28.6239, lng: 77.2190, status: 'Responding to Fire' },
+    { id: 'POL-309', type: 'police', lat: 28.6039, lng: 77.1990, status: 'Patrolling' },
+    { id: 'AMB-404', type: 'ambulance', lat: 28.6189, lng: 77.2040, status: 'Standby' },
+    { id: 'FIRE-112', type: 'fire', lat: 28.6100, lng: 77.2200, status: 'Returning to Station' },
+    { id: 'POL-411', type: 'police', lat: 28.6000, lng: 77.2100, status: 'En Route to Incident' },
+  ];
+
+  setInterval(() => {
+    simulatedVehicles.forEach(v => {
+      v.lat += (Math.random() - 0.5) * 0.001;
+      v.lng += (Math.random() - 0.5) * 0.001;
+    });
+    io.emit('fleetUpdate', simulatedVehicles);
+  }, 2000);
+
   io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
+    
+    // Send initial fleet state
+    socket.emit('fleetUpdate', simulatedVehicles);
 
     socket.on('updateLocation', (data) => {
       // Broadcast location to all clients (hospitals, public)
