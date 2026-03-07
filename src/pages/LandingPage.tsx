@@ -16,19 +16,6 @@ export default function LandingPage() {
       <div className="relative flex w-full flex-col items-center justify-center overflow-hidden min-h-screen">
         <div className="relative z-10 w-full mx-auto max-w-5xl px-4">
           <main className="relative py-20 flex flex-col items-center">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, ease: "easeOut" }}
-              className="flex items-center justify-center gap-2 bg-[#0A1A10] px-5 py-2.5 rounded-full border border-[#1A3A20] mb-8"
-            >
-              <span className="relative flex h-2.5 w-2.5 items-center justify-center">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00FF66] opacity-75"></span>
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#00FF66]"></span>
-              </span>
-              <p className="text-sm text-[#00FF66] font-medium tracking-wide">System Online & Monitoring</p>
-            </motion.div>
-
             <motion.h1 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -54,19 +41,30 @@ export default function LandingPage() {
               className="flex flex-col sm:flex-row gap-6 justify-center items-center mb-16"
             >
               <button 
-                className="group bg-zinc-200 hover:bg-white text-black rounded-full px-8 py-4 text-base font-semibold transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)] flex items-center gap-2 hover:scale-105" 
+                className="bg-[#E5E7EB] hover:bg-white text-black rounded-full px-8 py-4 text-base font-semibold transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)]" 
                 onClick={() => navigate('/login')}
               >
                 Launch Dashboard
-                <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </button>
               <button 
-                className="text-zinc-400 hover:text-white transition-colors px-6 py-4 text-base flex items-center gap-2 hover:scale-105 transition-transform"
+                className="text-zinc-400 hover:text-white transition-colors px-6 py-4 text-base"
                 onClick={() => navigate('/sos')}
               >
-                <ShieldAlert className="w-4 h-4" />
                 Public SOS Mode
               </button>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, ease: "easeOut", delay: 0.8 }}
+              className="flex items-center justify-center gap-2 bg-[#0A1A10] px-5 py-2.5 rounded-full border border-[#1A3A20]"
+            >
+              <span className="relative flex h-2.5 w-2.5 items-center justify-center">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00FF66] opacity-75"></span>
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#00FF66]"></span>
+              </span>
+              <p className="text-sm text-[#00FF66] font-medium tracking-wide">System Online & Monitoring</p>
             </motion.div>
           </main>
         </div>
@@ -153,9 +151,6 @@ export default function LandingPage() {
               <p className="text-zinc-400 text-sm leading-relaxed relative z-10">
                 Direct connection between public emergency requests and the nearest available response units, minimizing dispatch delays.
               </p>
-              <div className="mt-6 rounded-lg overflow-hidden border border-white/10 relative z-10">
-                <img src="https://images.unsplash.com/photo-1516880711640-ef7daf816e87?q=80&w=800&auto=format&fit=crop" alt="Emergency" className="w-full h-32 object-cover opacity-70 group-hover:opacity-100 transition-opacity group-hover:scale-105 duration-500" />
-              </div>
             </motion.div>
           </div>
         </div>

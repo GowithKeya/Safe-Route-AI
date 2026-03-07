@@ -1,43 +1,64 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { GoogleMap, useJsApiLoader, Marker, DirectionsRenderer } from '@react-google-maps/api';
+import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { AlertTriangle, Navigation, Activity, ShieldAlert, MapPin, Search } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
 
-const containerStyle = {
-  width: '100%',
-  height: '100%'
-};
+// Fix for default marker icons in Leaflet with React
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
-const center = {
-  lat: 28.6139,
-  lng: 77.2090 // New Delhi
-};
+const customAmbulanceIcon = new L.Icon({
+  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1 .4-1 1v10H2v-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>'),
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+});
+
+const customHospitalIcon = new L.Icon({
+  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'),
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+});
+
+const customAccidentIcon = new L.Icon({
+  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'),
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+});
+
+const center: [number, number] = [28.6139, 77.2090]; // New Delhi
 
 const socket = io();
 
 export default function Dashboard() {
-  const { isLoaded } = useJsApiLoader({
-    id: 'google-map-script',
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''
-  });
-
-  const [map, setMap] = useState<google.maps.Map | null>(null);
-  const [directionsResponse, setDirectionsResponse] = useState<google.maps.DirectionsResult | null>(null);
   const [emergencyMode, setEmergencyMode] = useState(false);
   const [tripProgress, setTripProgress] = useState(0);
   const [vehicles, setVehicles] = useState<Record<string, any>>({});
   const [dynamicETA, setDynamicETA] = useState<string | null>(null);
-  const [accidents, setAccidents] = useState<{lat: number, lng: number}[]>([
-    { lat: 28.62, lng: 77.21 } // Mock accident
+  const [routeCalculated, setRouteCalculated] = useState(false);
+  const [accidents, setAccidents] = useState<[number, number][]>([
+    [28.62, 77.21] // Mock accident
   ]);
 
-  const onLoad = useCallback(function callback(map: google.maps.Map) {
-    setMap(map);
-  }, []);
+  // Mock route from center to AIIMS
+  const mockRoute: [number, number][] = [
+    [28.6139, 77.2090],
+    [28.5939, 77.2190],
+    [28.5739, 77.2290],
+    [28.5539, 77.2390],
+    [28.5355, 77.2410] // AIIMS Delhi
+  ];
 
-  const onUnmount = useCallback(function callback() {
-    setMap(null);
-  }, []);
+  const hospitals: {pos: [number, number], name: string}[] = [
+    { pos: [28.5355, 77.2410], name: "AIIMS Delhi" },
+    { pos: [28.6389, 77.2227], name: "Lok Nayak Hospital" },
+    { pos: [28.5844, 77.2345], name: "Safdarjung Hospital" }
+  ];
 
   useEffect(() => {
     socket.on('vehicleLocationUpdate', (data) => {
@@ -50,33 +71,32 @@ export default function Dashboard() {
   }, []);
 
   const calculateRoute = async () => {
-    if (!window.google) return;
+    setRouteCalculated(true);
     
-    // Mock route calculation
-    const directionsService = new google.maps.DirectionsService();
     try {
-      const results = await directionsService.route({
-        origin: center,
-        destination: { lat: 28.5355, lng: 77.2410 }, // AIIMS Delhi
-        travelMode: google.maps.TravelMode.DRIVING,
-        provideRouteAlternatives: true,
-        drivingOptions: {
-          departureTime: new Date(Date.now()),  // for current traffic
-          trafficModel: google.maps.TrafficModel.BEST_GUESS
-        }
-      });
-      setDirectionsResponse(results);
+      const origin = `${center[0]},${center[1]}`;
+      const destination = `${hospitals[0].pos[0]},${hospitals[0].pos[1]}`;
       
-      if (results.routes && results.routes.length > 0 && results.routes[0].legs && results.routes[0].legs.length > 0) {
-        const leg = results.routes[0].legs[0];
-        // Use duration_in_traffic if available, otherwise fallback to duration
-        const etaText = leg.duration_in_traffic ? leg.duration_in_traffic.text : leg.duration?.text;
-        if (etaText) {
-          setDynamicETA(etaText);
+      const response = await fetch(`/api/directions?origin=${origin}&destination=${destination}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.routes && data.routes.length > 0 && data.routes[0].legs && data.routes[0].legs.length > 0) {
+          const leg = data.routes[0].legs[0];
+          // Use duration_in_traffic if available (requires BEST_GUESS traffic model and departure_time=now)
+          const etaText = leg.duration_in_traffic ? leg.duration_in_traffic.text : leg.duration?.text;
+          if (etaText) {
+            setDynamicETA(etaText);
+            return;
+          }
         }
       }
+      
+      // Fallback if API fails or key is missing
+      setDynamicETA("15 mins");
     } catch (error) {
-      console.error("Error calculating route", error);
+      console.error("Error fetching route", error);
+      setDynamicETA("15 mins");
     }
   };
 
@@ -94,8 +114,8 @@ export default function Dashboard() {
         });
         socket.emit('updateLocation', {
           id: 'AMB-101',
-          lat: center.lat + (Math.random() - 0.5) * 0.01,
-          lng: center.lng + (Math.random() - 0.5) * 0.01,
+          lat: center[0] + (Math.random() - 0.5) * 0.01,
+          lng: center[1] + (Math.random() - 0.5) * 0.01,
           timestamp: Date.now()
         });
       }, 3000);
@@ -234,155 +254,70 @@ export default function Dashboard() {
       </div>
 
       {/* Main Map Area */}
-      <div className="flex-1 relative">
-        {isLoaded ? (
-          <GoogleMap
-            mapContainerStyle={containerStyle}
-            center={center}
-            zoom={13}
-            onLoad={onLoad}
-            onUnmount={onUnmount}
-            options={{
-              styles: [
-                { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-                { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
-                { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-                {
-                  featureType: "administrative.locality",
-                  elementType: "labels.text.fill",
-                  stylers: [{ color: "#d59563" }],
-                },
-                {
-                  featureType: "poi",
-                  elementType: "labels.text.fill",
-                  stylers: [{ color: "#d59563" }],
-                },
-                {
-                  featureType: "poi.park",
-                  elementType: "geometry",
-                  stylers: [{ color: "#263c3f" }],
-                },
-                {
-                  featureType: "poi.park",
-                  elementType: "labels.text.fill",
-                  stylers: [{ color: "#6b9a76" }],
-                },
-                {
-                  featureType: "road",
-                  elementType: "geometry",
-                  stylers: [{ color: "#38414e" }],
-                },
-                {
-                  featureType: "road",
-                  elementType: "geometry.stroke",
-                  stylers: [{ color: "#212a37" }],
-                },
-                {
-                  featureType: "road",
-                  elementType: "labels.text.fill",
-                  stylers: [{ color: "#9ca5b3" }],
-                },
-                {
-                  featureType: "road.highway",
-                  elementType: "geometry",
-                  stylers: [{ color: "#746855" }],
-                },
-                {
-                  featureType: "road.highway",
-                  elementType: "geometry.stroke",
-                  stylers: [{ color: "#1f2835" }],
-                },
-                {
-                  featureType: "road.highway",
-                  elementType: "labels.text.fill",
-                  stylers: [{ color: "#f3d19c" }],
-                },
-                {
-                  featureType: "transit",
-                  elementType: "geometry",
-                  stylers: [{ color: "#2f3948" }],
-                },
-                {
-                  featureType: "transit.station",
-                  elementType: "labels.text.fill",
-                  stylers: [{ color: "#d59563" }],
-                },
-                {
-                  featureType: "water",
-                  elementType: "geometry",
-                  stylers: [{ color: "#17263c" }],
-                },
-                {
-                  featureType: "water",
-                  elementType: "labels.text.fill",
-                  stylers: [{ color: "#515c6d" }],
-                },
-                {
-                  featureType: "water",
-                  elementType: "labels.text.stroke",
-                  stylers: [{ color: "#17263c" }],
-                },
-              ],
-              disableDefaultUI: true,
-              zoomControl: true,
-            }}
-          >
-            {/* Current Location Marker */}
+      <div className="flex-1 relative z-0">
+        <MapContainer 
+          center={center} 
+          zoom={12} 
+          style={{ width: '100%', height: '100%' }}
+          zoomControl={false}
+        >
+          <TileLayer
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          />
+
+          {/* Current Location Marker */}
+          <Marker position={center} icon={customAmbulanceIcon}>
+            <Popup>
+              <div className="text-zinc-900 font-medium">AMB-101 (Current Location)</div>
+            </Popup>
+          </Marker>
+
+          {/* Hospitals */}
+          {hospitals.map((hospital, i) => (
+            <Marker key={`h-${i}`} position={hospital.pos} icon={customHospitalIcon}>
+              <Popup>
+                <div className="text-zinc-900 font-medium">{hospital.name}</div>
+              </Popup>
+            </Marker>
+          ))}
+
+          {/* Other Vehicles */}
+          {Object.values(vehicles).map((v: any) => (
             <Marker 
-              position={center} 
-              icon={{
-                url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1 .4-1 1v10H2v-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>'),
-                scaledSize: new window.google.maps.Size(32, 32),
-              }}
+              key={v.id} 
+              position={[v.lat, v.lng]} 
+              icon={customAmbulanceIcon}
+            >
+              <Popup>
+                <div className="text-zinc-900 font-medium">{v.id}</div>
+              </Popup>
+            </Marker>
+          ))}
+
+          {/* Accidents */}
+          {accidents.map((acc, i) => (
+            <Marker key={`acc-${i}`} position={acc} icon={customAccidentIcon}>
+              <Popup>
+                <div className="text-red-600 font-medium">Reported Accident</div>
+              </Popup>
+            </Marker>
+          ))}
+
+          {/* Route */}
+          {routeCalculated && (
+            <Polyline 
+              positions={mockRoute} 
+              color={emergencyMode ? '#ef4444' : '#3b82f6'} 
+              weight={6} 
+              opacity={0.8} 
             />
-
-            {/* Other Vehicles */}
-            {Object.values(vehicles).map((v: any) => (
-              <Marker 
-                key={v.id} 
-                position={{ lat: v.lat, lng: v.lng }} 
-                icon={{
-                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1 .4-1 1v10H2v-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>'),
-                  scaledSize: new window.google.maps.Size(24, 24),
-                }}
-              />
-            ))}
-
-            {/* Accidents */}
-            {accidents.map((acc, i) => (
-              <Marker 
-                key={i} 
-                position={acc} 
-                icon={{
-                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'),
-                  scaledSize: new window.google.maps.Size(32, 32),
-                }}
-              />
-            ))}
-
-            {directionsResponse && (
-              <DirectionsRenderer 
-                directions={directionsResponse} 
-                options={{
-                  polylineOptions: {
-                    strokeColor: emergencyMode ? '#ef4444' : '#3b82f6',
-                    strokeWeight: 6,
-                    strokeOpacity: 0.8
-                  },
-                  suppressMarkers: true
-                }}
-              />
-            )}
-          </GoogleMap>
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-zinc-900">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
-          </div>
-        )}
+          )}
+        </MapContainer>
 
         {/* Overlay UI */}
         {emergencyMode && (
-          <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-3 rounded-full font-bold shadow-[0_0_30px_rgba(239,68,68,0.6)] animate-pulse flex items-center gap-3">
+          <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-3 rounded-full font-bold shadow-[0_0_30px_rgba(239,68,68,0.6)] animate-pulse flex items-center gap-3 z-[1000]">
             <AlertTriangle size={24} />
             EMERGENCY PRIORITY ROUTING ACTIVE
           </div>
