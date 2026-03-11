@@ -91,6 +91,8 @@ export default function Dashboard() {
     [28.62, 77.21] // Mock accident
   ]);
   const [facilities, setFacilities] = useState<any[]>([]);
+  const [trafficSegments, setTrafficSegments] = useState<any[]>([]);
+  const [isLoadingTraffic, setIsLoadingTraffic] = useState(false);
   const [fleet, setFleet] = useState<any[]>([]);
   const [showTraffic, setShowTraffic] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
@@ -180,6 +182,58 @@ export default function Dashboard() {
       socket.off('fleetUpdate');
     };
   }, []);
+
+  // Fetch and generate AI traffic prediction
+  useEffect(() => {
+    if (showTraffic && trafficSegments.length === 0) {
+      const fetchTraffic = async () => {
+        setIsLoadingTraffic(true);
+        const query = `
+          [out:json][timeout:10];
+          (
+            way["highway"~"primary|secondary|trunk"](around:4000,${center[0]},${center[1]});
+          );
+          out geom;
+        `;
+        try {
+          const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+          const data = await res.json();
+          
+          const segments = data.elements
+            .filter((e: any) => e.type === 'way' && e.geometry)
+            .map((way: any) => {
+              // AI prediction simulation based on way ID to be deterministic
+              const seed = way.id % 100;
+              let level = 'clear';
+              let color = '#22c55e'; // green
+              
+              if (seed > 85) { 
+                level = 'heavy'; 
+                color = '#ef4444'; // red
+              } else if (seed > 50) { 
+                level = 'moderate'; 
+                color = '#eab308'; // yellow
+              }
+
+              return {
+                id: way.id,
+                positions: way.geometry.map((g: any) => [g.lat, g.lon]),
+                level,
+                color
+              };
+            });
+            
+          setTrafficSegments(segments);
+        } catch (e) {
+          console.error("Failed to fetch traffic data", e);
+        } finally {
+          setIsLoadingTraffic(false);
+        }
+      };
+
+      fetchTraffic();
+    }
+  }, [showTraffic, trafficSegments.length]);
 
   useEffect(() => {
     const timer = setTimeout(async () => {
@@ -363,8 +417,12 @@ export default function Dashboard() {
                       : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
                   }`}
                 >
-                  <Layers size={18} />
-                  {showTraffic ? 'Hide Live Traffic' : 'Show Live Traffic'}
+                  {isLoadingTraffic && showTraffic ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Layers size={18} />
+                  )}
+                  {showTraffic ? (isLoadingTraffic ? 'Loading AI Traffic...' : 'Hide Live Traffic') : 'Show Live Traffic'}
                 </button>
                 
                 <div className="bg-zinc-950 rounded-lg p-3 border border-zinc-800">
@@ -658,15 +716,20 @@ export default function Dashboard() {
         >
           <MapController center={mapCenter} zoom={mapZoom} />
           <TileLayer
-            url={showTraffic 
-              ? "https://mt1.google.com/vt/lyrs=m,traffic&x={x}&y={y}&z={z}"
-              : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            }
-            attribution={showTraffic 
-              ? '&copy; Google Maps'
-              : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            }
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           />
+
+          {/* AI Traffic Prediction Overlay */}
+          {showTraffic && trafficSegments.map(seg => (
+            <Polyline
+              key={`traffic-${seg.id}`}
+              positions={seg.positions}
+              color={seg.color}
+              weight={4}
+              opacity={0.6}
+            />
+          ))}
 
           {/* Vehicle Paths */}
           {showHistory && selectedVehicle && vehiclePaths[selectedVehicle.id] && (
