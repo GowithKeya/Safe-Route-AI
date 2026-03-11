@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
-import { AlertTriangle, Navigation, Activity, ShieldAlert, MapPin, Search, Layers, X, Clock, Settings2, Plus, Minus, Crosshair, ChevronLeft, ChevronRight, Home } from 'lucide-react';
+import { AlertTriangle, Navigation, Activity, ShieldAlert, MapPin, Search, Layers, X, Clock, Settings2, Plus, Minus, Crosshair, ChevronLeft, ChevronRight, Home, Sparkles } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
@@ -95,6 +95,7 @@ export default function Dashboard() {
   const [showTraffic, setShowTraffic] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [vehiclePaths, setVehiclePaths] = useState<Record<string, {lat: number, lng: number, timestamp: number}[]>>({});
+  const [showHistory, setShowHistory] = useState(false);
   const [pathHistoryDuration, setPathHistoryDuration] = useState<number>(5); // in minutes
   
   // Route Preferences
@@ -181,38 +182,64 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setSearchResults([]);
-      return;
-    }
-    
-    const query = searchQuery.toLowerCase();
-    const results: any[] = [];
-    
-    // Search static hospitals
-    hospitals.forEach(h => {
-      if (h.name.toLowerCase().includes(query)) {
-        results.push({ id: `h-${h.name}`, name: h.name, type: 'Hospital', lat: h.pos[0], lng: h.pos[1] });
+    const timer = setTimeout(async () => {
+      if (!searchQuery.trim()) {
+        setSearchResults([]);
+        return;
       }
-    });
-    
-    // Search fetched facilities
-    facilities.forEach(f => {
-      const name = f.tags?.name || '';
-      if (name.toLowerCase().includes(query)) {
-        let typeName = "Hospital";
-        if (f.tags?.amenity === 'pharmacy') typeName = "Pharmacy";
-        else if (f.tags?.amenity === 'clinic' || f.tags?.amenity === 'doctors') typeName = "Clinic";
-        else if (f.tags?.amenity === 'veterinary') typeName = "Veterinary";
-        
-        // Avoid duplicates if static hospital is also in fetched facilities
-        if (!results.some(r => r.name === name)) {
-          results.push({ id: f.id, name: name, type: typeName, lat: f.lat, lng: f.lon });
+      
+      const query = searchQuery.toLowerCase();
+      const results: any[] = [];
+      
+      // Search static hospitals
+      hospitals.forEach(h => {
+        if (h.name.toLowerCase().includes(query)) {
+          results.push({ id: `h-${h.name}`, name: h.name, type: 'Hospital', lat: h.pos[0], lng: h.pos[1] });
+        }
+      });
+      
+      // Search fetched facilities
+      facilities.forEach(f => {
+        const name = f.tags?.name || '';
+        if (name.toLowerCase().includes(query)) {
+          let typeName = "Hospital";
+          if (f.tags?.amenity === 'pharmacy') typeName = "Pharmacy";
+          else if (f.tags?.amenity === 'clinic' || f.tags?.amenity === 'doctors') typeName = "Clinic";
+          else if (f.tags?.amenity === 'veterinary') typeName = "Veterinary";
+          
+          // Avoid duplicates if static hospital is also in fetched facilities
+          if (!results.some(r => r.name === name)) {
+            results.push({ id: f.id, name: name, type: typeName, lat: f.lat, lng: f.lon });
+          }
+        }
+      });
+
+      // AI/Nominatim Search for broader locations, addresses, and landmarks
+      if (results.length < 5) {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
+          const data = await res.json();
+          data.forEach((item: any) => {
+            const name = item.display_name.split(',')[0];
+            if (!results.some(r => r.name === name)) {
+              results.push({
+                id: `nom-${item.place_id}`,
+                name: name,
+                type: 'AI Suggestion',
+                lat: parseFloat(item.lat),
+                lng: parseFloat(item.lon)
+              });
+            }
+          });
+        } catch (e) {
+          console.error("AI Search failed", e);
         }
       }
-    });
-    
-    setSearchResults(results.slice(0, 5));
+      
+      setSearchResults(results.slice(0, 8));
+    }, 500);
+
+    return () => clearTimeout(timer);
   }, [searchQuery, facilities]);
 
   const handleSelectFacility = (facility: any) => {
@@ -295,9 +322,6 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 mb-4">
             <button onClick={() => navigate(-1)} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Go Back">
               <ChevronLeft size={16} />
-            </button>
-            <button onClick={() => navigate(1)} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Go Forward">
-              <ChevronRight size={16} />
             </button>
             <button onClick={() => navigate('/')} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors ml-auto" title="Go Home">
               <Home size={16} />
@@ -422,12 +446,12 @@ export default function Dashboard() {
                 )}
 
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
+                  <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500" size={16} />
                   <input 
                     type="text" 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search hospitals, clinics..." 
+                    placeholder="AI Search hospitals, clinics, addresses, landmarks..." 
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-red-500 transition-colors"
                   />
                   
@@ -439,7 +463,10 @@ export default function Dashboard() {
                           onClick={() => handleSelectFacility(res)}
                           className="w-full text-left px-4 py-2 hover:bg-zinc-800 flex flex-col transition-colors border-b border-zinc-800/50 last:border-0"
                         >
-                          <span className="text-sm font-medium text-zinc-200">{res.name}</span>
+                          <span className="text-sm font-medium text-zinc-200 flex items-center gap-2">
+                            {res.type === 'AI Suggestion' && <Sparkles size={12} className="text-blue-400" />}
+                            {res.name}
+                          </span>
                           <span className="text-xs text-zinc-500">{res.type}</span>
                         </button>
                       ))}
@@ -578,6 +605,39 @@ export default function Dashboard() {
                     </div>
                   </div>
                   
+                  <div className="pt-3 border-t border-zinc-800/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-zinc-300">Show Historical Path</span>
+                      <button 
+                        onClick={() => setShowHistory(!showHistory)}
+                        className={`w-10 h-5 rounded-full relative transition-colors ${showHistory ? 'bg-blue-500' : 'bg-zinc-700'}`}
+                      >
+                        <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${showHistory ? 'translate-x-5' : ''}`} />
+                      </button>
+                    </div>
+                    
+                    {showHistory && (
+                      <div className="mt-3">
+                        <div className="flex justify-between text-xs text-zinc-500 mb-1">
+                          <span>Path Duration</span>
+                          <span className="text-blue-400 font-medium">{pathHistoryDuration} min</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="1" 
+                          max="10" 
+                          value={pathHistoryDuration}
+                          onChange={(e) => setPathHistoryDuration(parseInt(e.target.value))}
+                          className="w-full accent-blue-500 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <div className="flex justify-between text-[10px] text-zinc-600 mt-1">
+                          <span>1m</span>
+                          <span>10m</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
                   <button className="w-full mt-2 py-2 bg-zinc-800 hover:bg-zinc-700 rounded text-xs font-medium transition-colors">
                     Contact Unit
                   </button>
@@ -609,28 +669,31 @@ export default function Dashboard() {
           />
 
           {/* Vehicle Paths */}
-          {Object.entries(vehiclePaths).map(([id, path]: [string, any]) => {
-            const vehicle = fleet.find(v => v.id === id) || vehicles[id];
-            let color = '#ef4444'; // default ambulance red
-            if (vehicle?.type === 'fire') color = '#f97316';
-            else if (vehicle?.type === 'police') color = '#3b82f6';
+          {showHistory && selectedVehicle && vehiclePaths[selectedVehicle.id] && (
+            (() => {
+              const path = vehiclePaths[selectedVehicle.id];
+              const vehicle = fleet.find(v => v.id === selectedVehicle.id) || vehicles[selectedVehicle.id] || selectedVehicle;
+              let color = '#ef4444'; // default ambulance red
+              if (vehicle?.type === 'fire') color = '#f97316';
+              else if (vehicle?.type === 'police') color = '#3b82f6';
 
-            const now = Date.now();
-            const filteredPath = path.filter((p: any) => now - p.timestamp <= pathHistoryDuration * 60000);
+              const now = Date.now();
+              const filteredPath = path.filter((p: any) => now - p.timestamp <= pathHistoryDuration * 60000);
 
-            if (filteredPath.length < 2) return null;
-
-            return (
-              <Polyline 
-                key={`path-${id}`}
-                positions={filteredPath.map((p: any) => [p.lat, p.lng])}
-                color={color}
-                weight={3}
-                opacity={0.4}
-                dashArray="5, 5"
-              />
-            );
-          })}
+              if (filteredPath.length >= 2) {
+                return (
+                  <Polyline 
+                    positions={filteredPath.map((p: any) => [p.lat, p.lng])}
+                    color={color}
+                    weight={4}
+                    opacity={0.6}
+                    dashArray="5, 10"
+                  />
+                );
+              }
+              return null;
+            })()
+          )}
 
           {/* Current Location Marker */}
           <Marker 

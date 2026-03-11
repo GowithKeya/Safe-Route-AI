@@ -38,7 +38,7 @@ export default function LandingPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.6, ease: "easeOut" }}
-              className="flex flex-col sm:flex-row gap-6 justify-center items-center mb-16"
+              className="flex flex-col sm:flex-row gap-6 justify-center items-center mb-8"
             >
               <button 
                 className="bg-[#E5E7EB] hover:bg-white text-black rounded-full px-8 py-4 text-base font-semibold transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)]" 
@@ -51,6 +51,21 @@ export default function LandingPage() {
                 onClick={() => navigate('/sos')}
               >
                 Public SOS Mode
+              </button>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.7, ease: "easeOut" }}
+              className="flex justify-center mb-16"
+            >
+              <button 
+                className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-white rounded-full px-6 py-3 text-sm font-medium transition-all"
+                onClick={() => navigate('/safe-route')}
+              >
+                <MapPin size={16} className="text-blue-400" />
+                Find your safe Route
               </button>
             </motion.div>
 
