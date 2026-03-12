@@ -98,6 +98,7 @@ export default function Dashboard() {
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [vehiclePaths, setVehiclePaths] = useState<Record<string, {lat: number, lng: number, timestamp: number}[]>>({});
   const [showHistory, setShowHistory] = useState(false);
+  const [followVehicle, setFollowVehicle] = useState(false);
   const [pathHistoryDuration, setPathHistoryDuration] = useState<number>(5); // in minutes
   
   // Route Preferences
@@ -125,6 +126,14 @@ export default function Dashboard() {
     { pos: [28.6389, 77.2227], name: "Lok Nayak Hospital" },
     { pos: [28.5844, 77.2345], name: "Safdarjung Hospital" }
   ];
+
+  const activeVehicle = selectedVehicle ? (fleet.find(v => v.id === selectedVehicle.id) || vehicles[selectedVehicle.id] || selectedVehicle) : null;
+
+  useEffect(() => {
+    if (followVehicle && activeVehicle) {
+      setMapCenter([activeVehicle.lat, activeVehicle.lng]);
+    }
+  }, [activeVehicle, followVehicle]);
 
   useEffect(() => {
     socket.on('vehicleLocationUpdate', (data) => {
@@ -611,12 +620,15 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {selectedVehicle && (
+            {activeVehicle && (
               <div className="mt-6 border-t border-zinc-800 pt-6">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">Unit Details</h3>
                   <button 
-                    onClick={() => setSelectedVehicle(null)}
+                    onClick={() => {
+                      setSelectedVehicle(null);
+                      setFollowVehicle(false);
+                    }}
                     className="text-zinc-500 hover:text-white transition-colors"
                   >
                     <X size={16} />
@@ -625,16 +637,16 @@ export default function Dashboard() {
                 <div className="bg-zinc-950 rounded-lg p-4 border border-zinc-800 space-y-3">
                   <div className="flex items-center gap-3 pb-3 border-b border-zinc-800/50">
                     <div className={`p-2 rounded-full ${
-                      selectedVehicle.type === 'ambulance' || selectedVehicle.id === 'AMB-101' ? 'bg-red-500/20 text-red-500' :
-                      selectedVehicle.type === 'fire' ? 'bg-orange-500/20 text-orange-500' :
-                      selectedVehicle.type === 'police' ? 'bg-blue-500/20 text-blue-500' :
+                      activeVehicle.type === 'ambulance' || activeVehicle.id === 'AMB-101' ? 'bg-red-500/20 text-red-500' :
+                      activeVehicle.type === 'fire' ? 'bg-orange-500/20 text-orange-500' :
+                      activeVehicle.type === 'police' ? 'bg-blue-500/20 text-blue-500' :
                       'bg-zinc-500/20 text-zinc-500'
                     }`}>
                       <Activity size={20} />
                     </div>
                     <div>
-                      <p className="font-bold text-lg leading-none">{selectedVehicle.id}</p>
-                      <p className="text-xs text-zinc-400 capitalize mt-1">{selectedVehicle.type || 'Emergency Unit'}</p>
+                      <p className="font-bold text-lg leading-none">{activeVehicle.id}</p>
+                      <p className="text-xs text-zinc-400 capitalize mt-1">{activeVehicle.type || 'Emergency Unit'}</p>
                     </div>
                   </div>
                   
@@ -642,28 +654,37 @@ export default function Dashboard() {
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-zinc-500">Status</span>
                       <span className={`text-sm font-medium ${
-                        selectedVehicle.status?.includes('Responding') || selectedVehicle.status?.includes('En Route') || emergencyMode && selectedVehicle.id === 'AMB-101'
+                        activeVehicle.status?.includes('Responding') || activeVehicle.status?.includes('En Route') || emergencyMode && activeVehicle.id === 'AMB-101'
                           ? 'text-red-400' 
                           : 'text-green-400'
                       }`}>
-                        {selectedVehicle.id === 'AMB-101' ? (emergencyMode ? 'Emergency Priority' : 'Standby') : selectedVehicle.status || 'Active'}
+                        {activeVehicle.id === 'AMB-101' ? (emergencyMode ? 'Emergency Priority' : 'Standby') : activeVehicle.status || 'Active'}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-zinc-500">Coordinates</span>
                       <span className="font-mono text-xs text-zinc-300">
-                        {selectedVehicle.lat.toFixed(4)}, {selectedVehicle.lng.toFixed(4)}
+                        {activeVehicle.lat.toFixed(4)}, {activeVehicle.lng.toFixed(4)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-zinc-500">Speed</span>
                       <span className="font-mono text-xs text-zinc-300">
-                        {selectedVehicle.status?.includes('Responding') || selectedVehicle.status?.includes('En Route') ? '65 km/h' : '0 km/h'}
+                        {activeVehicle.status?.includes('Responding') || activeVehicle.status?.includes('En Route') ? '65 km/h' : '0 km/h'}
                       </span>
                     </div>
                   </div>
                   
                   <div className="pt-3 border-t border-zinc-800/50">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-zinc-300">Follow Vehicle</span>
+                      <button 
+                        onClick={() => setFollowVehicle(!followVehicle)}
+                        className={`w-10 h-5 rounded-full relative transition-colors ${followVehicle ? 'bg-blue-500' : 'bg-zinc-700'}`}
+                      >
+                        <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${followVehicle ? 'translate-x-5' : ''}`} />
+                      </button>
+                    </div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm text-zinc-300">Show Historical Path</span>
                       <button 
@@ -732,13 +753,12 @@ export default function Dashboard() {
           ))}
 
           {/* Vehicle Paths */}
-          {showHistory && selectedVehicle && vehiclePaths[selectedVehicle.id] && (
+          {showHistory && activeVehicle && vehiclePaths[activeVehicle.id] && (
             (() => {
-              const path = vehiclePaths[selectedVehicle.id];
-              const vehicle = fleet.find(v => v.id === selectedVehicle.id) || vehicles[selectedVehicle.id] || selectedVehicle;
+              const path = vehiclePaths[activeVehicle.id];
               let color = '#ef4444'; // default ambulance red
-              if (vehicle?.type === 'fire') color = '#f97316';
-              else if (vehicle?.type === 'police') color = '#3b82f6';
+              if (activeVehicle?.type === 'fire') color = '#f97316';
+              else if (activeVehicle?.type === 'police') color = '#3b82f6';
 
               const now = Date.now();
               const filteredPath = path.filter((p: any) => now - p.timestamp <= pathHistoryDuration * 60000);

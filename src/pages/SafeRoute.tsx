@@ -331,7 +331,8 @@ export default function SafeRoute() {
             lat: point[0],
             lng: point[1],
             type: ['Poor Lighting', 'High Crime Area', 'Accident Prone Zone'][Math.floor(Math.random() * 3)],
-            severity: ['Medium', 'High'][Math.floor(Math.random() * 2)]
+            severity: ['Medium', 'High'][Math.floor(Math.random() * 2)],
+            description: ['Multiple incidents reported in the last 30 days.', 'Area known for low visibility at night.', 'Recent spike in petty theft reports.', 'Frequent traffic collisions at this intersection.'][Math.floor(Math.random() * 4)]
           });
         }
       }
@@ -703,13 +704,27 @@ export default function SafeRoute() {
                     </h5>
                     <div className="space-y-2">
                       {safetyStats.hotspots.map((hotspot: any) => (
-                        <div key={hotspot.id} className="flex justify-between items-center text-sm">
-                          <span className="text-zinc-300">{hotspot.type}</span>
+                        <div key={hotspot.id} className="relative group cursor-help flex justify-between items-center text-sm">
+                          <span className="text-zinc-300 border-b border-dashed border-zinc-600">{hotspot.type}</span>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                             hotspot.severity === 'High' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
                           }`}>
                             {hotspot.severity}
                           </span>
+                          
+                          {/* Tooltip */}
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-zinc-800 text-zinc-200 text-xs rounded-lg p-3 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl border border-zinc-700">
+                            <div className="font-bold text-white mb-1 flex items-center gap-1">
+                              <AlertTriangle size={12} className={hotspot.severity === 'High' ? 'text-red-400' : 'text-yellow-400'} /> 
+                              {hotspot.type}
+                            </div>
+                            <div className="text-zinc-400 mb-2">{hotspot.description}</div>
+                            <div className="flex justify-between items-center pt-2 border-t border-zinc-700/50">
+                              <span className="text-zinc-500">Severity:</span>
+                              <span className={hotspot.severity === 'High' ? 'text-red-400 font-medium' : 'text-yellow-400 font-medium'}>{hotspot.severity}</span>
+                            </div>
+                            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-zinc-800 border-b border-r border-zinc-700 transform rotate-45"></div>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -802,17 +817,22 @@ export default function SafeRoute() {
           {/* Hazard Hotspots */}
           {safetyStats?.hotspots?.map((hotspot: any) => (
             <Marker key={hotspot.id} position={[hotspot.lat, hotspot.lng]} icon={customHazardIcon}>
-              <Popup>
-                <div className="text-zinc-900 font-medium flex items-center gap-1">
-                  <AlertTriangle size={14} className="text-yellow-500" /> Hazard Hotspot
+              <Tooltip direction="top" offset={[0, -10]} opacity={1} className="!bg-transparent !border-none !shadow-none !p-0">
+                <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 shadow-xl w-48 text-left">
+                  <div className="text-zinc-100 font-bold flex items-center gap-1.5 mb-1.5">
+                    <AlertTriangle size={14} className={hotspot.severity === 'High' ? 'text-red-500' : 'text-yellow-500'} /> 
+                    {hotspot.type}
+                  </div>
+                  <div className="text-zinc-400 text-xs mb-2 whitespace-normal leading-relaxed">
+                    {hotspot.description}
+                  </div>
+                  <div className={`text-xs font-semibold px-2 py-1 rounded bg-zinc-800 inline-block ${
+                    hotspot.severity === 'High' ? 'text-red-400' : 'text-yellow-400'
+                  }`}>
+                    {hotspot.severity} Risk
+                  </div>
                 </div>
-                <div className="text-zinc-600 text-sm mt-1">{hotspot.type}</div>
-                <div className={`text-xs mt-1 font-medium ${
-                  hotspot.severity === 'High' ? 'text-red-500' : 'text-yellow-600'
-                }`}>
-                  Severity: {hotspot.severity}
-                </div>
-              </Popup>
+              </Tooltip>
             </Marker>
           ))}
 
@@ -838,13 +858,22 @@ export default function SafeRoute() {
 
           {/* Route Polyline - Colored by Safety */}
           {route && getColoredRouteSegments().map((segment, index) => (
-            <Polyline 
-              key={`route-segment-${index}`}
-              positions={segment.positions} 
-              color={segment.color} 
-              weight={6} 
-              opacity={0.8} 
-            />
+            <React.Fragment key={`route-segment-group-${index}`}>
+              {/* Outer glow/border for better visibility */}
+              <Polyline 
+                positions={segment.positions} 
+                color={segment.color} 
+                weight={10} 
+                opacity={0.3} 
+              />
+              {/* Core line */}
+              <Polyline 
+                positions={segment.positions} 
+                color={segment.color} 
+                weight={5} 
+                opacity={1} 
+              />
+            </React.Fragment>
           ))}
 
           {/* Simulated Fleet Vehicles */}
@@ -877,6 +906,27 @@ export default function SafeRoute() {
 
         {/* Overlay UI Controls */}
         <div className="absolute right-6 bottom-6 flex flex-col gap-2 z-[1000]">
+          {/* Route Safety Legend */}
+          {route && (
+            <div className="bg-zinc-900/90 backdrop-blur-sm border border-zinc-800/50 rounded-xl p-3 shadow-lg mb-2 mr-2">
+              <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Route Safety</h4>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
+                  <span className="text-xs text-zinc-300">Safe Zone</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]"></div>
+                  <span className="text-xs text-zinc-300">Moderate Risk</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]"></div>
+                  <span className="text-xs text-zinc-300">High Risk Area</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           <button 
             onClick={() => setShowTraffic(!showTraffic)}
             className={`p-3 rounded-xl shadow-lg border backdrop-blur-sm transition-all group ${
