@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, Tooltip } from 'react-leaflet';
-import { MapPin, Navigation, ShieldAlert, AlertTriangle, ShieldCheck, Clock, Layers, Crosshair, Plus, Minus, ChevronLeft, Home, Search, Activity, Sparkles, Save, Bookmark, Trash2 } from 'lucide-react';
+import { MapPin, Navigation, ShieldAlert, AlertTriangle, ShieldCheck, Clock, Layers, Crosshair, Plus, Minus, ChevronLeft, Home, Search, Activity, Sparkles, Save, Bookmark, Trash2, X, List } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -129,7 +129,10 @@ export default function SafeRoute() {
   const [route, setRoute] = useState<[number, number][] | null>(null);
   const [eta, setEta] = useState<string | null>(null);
   const [distance, setDistance] = useState<string | null>(null);
+  const [directions, setDirections] = useState<any[]>([]);
+  const [showDirections, setShowDirections] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
+  const [hoveredHotspot, setHoveredHotspot] = useState<any | null>(null);
   
   const [safetyStats, setSafetyStats] = useState<any | null>(null);
   const [facilities, setFacilities] = useState<any[]>([]);
@@ -150,8 +153,13 @@ export default function SafeRoute() {
     }
   }, []);
 
+  const isRouteSaved = savedRoutes.some(r => 
+    r.origin?.name === origin?.name && 
+    r.destination?.name === destination?.name
+  );
+
   const handleSaveRoute = () => {
-    if (!origin || !destination || !route || !safetyStats) return;
+    if (!origin || !destination || !route || !safetyStats || isRouteSaved) return;
     const newRoute = {
       id: Date.now().toString(),
       name: `${origin.name} to ${destination.name}`,
@@ -161,6 +169,7 @@ export default function SafeRoute() {
       safetyStats,
       eta,
       distance,
+      directions,
       facilities,
       timestamp: Date.now()
     };
@@ -178,6 +187,7 @@ export default function SafeRoute() {
     setSafetyStats(savedRoute.safetyStats);
     setEta(savedRoute.eta);
     setDistance(savedRoute.distance);
+    setDirections(savedRoute.directions || []);
     setFacilities(savedRoute.facilities || []);
     setMapBounds([
       [savedRoute.origin.lat, savedRoute.origin.lng],
@@ -401,6 +411,7 @@ export default function SafeRoute() {
           const etaText = leg.duration_in_traffic ? leg.duration_in_traffic.text : leg.duration?.text;
           setEta(etaText);
           setDistance(leg.distance?.text);
+          setDirections(leg.steps || []);
           
           const encoded = data.routes[0].overview_polyline.points;
           const decodedRoute = decodePolyline(encoded) as [number, number][];
@@ -425,45 +436,82 @@ export default function SafeRoute() {
     }
   };
 
-  // Generate colored route segments based on safety hotspots
+  // Generate colored route segments based on safety hotspots with gradient overlay
   const getColoredRouteSegments = () => {
     if (!route || route.length === 0) return [];
     if (!safetyStats || !safetyStats.hotspots || safetyStats.hotspots.length === 0) {
       return [{ positions: route, color: '#3b82f6' }]; // Default blue
     }
 
-    const segments: { positions: [number, number][], color: string }[] = [];
-    
-    // Determine color for each point based on proximity to hotspots
-    const pointColors = route.map(point => {
-      let maxSeverity = 'Safe';
+    // Base score from overall safety stats (0 to 1)
+    const baseScore = Math.max(0, Math.min(1, safetyStats.score / 100));
+
+    // Calculate a continuous safety score for each point
+    const pointScores = route.map(point => {
+      let pointScore = baseScore;
+      
       safetyStats.hotspots.forEach((hotspot: any) => {
-        // Simple distance calculation
+        // Rough distance calculation (Euclidean distance on lat/lng)
         const dist = Math.sqrt(Math.pow(point[0] - hotspot.lat, 2) + Math.pow(point[1] - hotspot.lng, 2));
-        if (dist < 0.005) { // roughly 500m
-          if (hotspot.severity === 'High') maxSeverity = 'High';
-          else if (maxSeverity !== 'High') maxSeverity = 'Medium';
+        const radius = 0.01; // roughly 1km influence radius
+        
+        if (dist < radius) {
+          // Closer to hotspot = lower score (intensity from 0 to 1)
+          const intensity = 1 - (dist / radius);
+          // High severity hotspots have a stronger negative impact
+          const severityFactor = hotspot.severity === 'High' ? 0.8 : 0.4;
+          pointScore -= (intensity * severityFactor);
         }
       });
       
-      if (maxSeverity === 'High') return '#ef4444'; // Red
-      if (maxSeverity === 'Medium') return '#eab308'; // Yellow
-      return '#22c55e'; // Green
+      return Math.max(0, Math.min(1, pointScore));
     });
 
-    let currentSegment = { positions: [route[0]], color: pointColors[0] };
+    // Helper to get color from score (Red -> Yellow -> Emerald)
+    const getColor = (score: number) => {
+      if (score < 0.5) {
+        // Interpolate between Red (#ef4444) and Yellow (#eab308)
+        const ratio = score / 0.5;
+        const r = Math.round(239 + ratio * (234 - 239));
+        const g = Math.round(68 + ratio * (179 - 68));
+        const b = Math.round(68 + ratio * (8 - 68));
+        return `rgb(${r}, ${g}, ${b})`;
+      } else {
+        // Interpolate between Yellow (#eab308) and Emerald (#10b981)
+        const ratio = (score - 0.5) / 0.5;
+        const r = Math.round(234 + ratio * (16 - 234));
+        const g = Math.round(179 + ratio * (185 - 179));
+        const b = Math.round(8 + ratio * (129 - 8));
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+    };
+
+    const segments: { positions: [number, number][], color: string }[] = [];
+    
+    // Group points into segments based on color bins to optimize rendering
+    // 20 bins means 5% score increments for a smooth gradient
+    const getBin = (score: number) => Math.round(score * 20);
+    
+    let currentSegment = { positions: [route[0]], colorBin: getBin(pointScores[0]) };
     
     for (let i = 1; i < route.length; i++) {
-      if (pointColors[i] === currentSegment.color) {
+      const bin = getBin(pointScores[i]);
+      if (bin === currentSegment.colorBin) {
         currentSegment.positions.push(route[i]);
       } else {
         currentSegment.positions.push(route[i]); // Connect to next point to avoid gaps
-        segments.push(currentSegment);
-        currentSegment = { positions: [route[i]], color: pointColors[i] };
+        segments.push({
+          positions: currentSegment.positions,
+          color: getColor(currentSegment.colorBin / 20)
+        });
+        currentSegment = { positions: [route[i]], colorBin: bin };
       }
     }
     if (currentSegment.positions.length > 1) {
-      segments.push(currentSegment);
+      segments.push({
+        positions: currentSegment.positions,
+        color: getColor(currentSegment.colorBin / 20)
+      });
     }
     
     return segments;
@@ -580,26 +628,46 @@ export default function SafeRoute() {
               )}
             </div>
 
-            <button 
-              onClick={calculateSafeRoute}
-              disabled={!origin || !destination || isCalculating}
-              className={`w-full py-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-                !origin || !destination 
-                  ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
-                  : 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
-              }`}
-            >
-              {isCalculating ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <>
-                  <Navigation size={18} />
-                  Find Safe Route
-                </>
-              )}
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={calculateSafeRoute}
+                disabled={!origin || !destination || isCalculating}
+                className={`flex-1 py-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+                  !origin || !destination 
+                    ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
+                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
+                }`}
+              >
+                {isCalculating ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Navigation size={18} />
+                    {route ? 'Recalculate' : 'Find Safe Route'}
+                  </>
+                )}
+              </button>
 
-            {!route && savedRoutes.length > 0 && (
+              {route && (
+                <button
+                  onClick={() => {
+                    setRoute(null);
+                    setSafetyStats(null);
+                    setEta(null);
+                    setDistance(null);
+                    setDirections([]);
+                    setShowDirections(false);
+                    setFacilities([]);
+                  }}
+                  className="px-4 py-3 rounded-lg text-sm font-bold flex items-center justify-center transition-all bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                  title="Clear Route"
+                >
+                  <X size={18} />
+                </button>
+              )}
+            </div>
+
+            {savedRoutes.length > 0 && (
               <div className="pt-6 border-t border-zinc-800">
                 <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3 flex items-center gap-2">
                   <Bookmark size={14} /> Saved Routes
@@ -643,9 +711,18 @@ export default function SafeRoute() {
                   <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Route Summary</h3>
                   <button 
                     onClick={handleSaveRoute}
-                    className="text-xs flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors bg-blue-500/10 hover:bg-blue-500/20 px-2 py-1 rounded"
+                    disabled={isRouteSaved}
+                    className={`text-xs flex items-center gap-1 transition-colors px-2 py-1 rounded ${
+                      isRouteSaved 
+                        ? 'text-green-400 bg-green-500/10 cursor-default' 
+                        : 'text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20'
+                    }`}
                   >
-                    <Save size={14} /> Save Route
+                    {isRouteSaved ? (
+                      <><Bookmark size={14} className="fill-current" /> Saved</>
+                    ) : (
+                      <><Save size={14} /> Save Route</>
+                    )}
                   </button>
                 </div>
                 <div className="flex justify-between items-center mb-2">
@@ -702,29 +779,20 @@ export default function SafeRoute() {
                     <h5 className="text-xs font-medium text-zinc-400 uppercase mb-2 flex items-center gap-1">
                       <AlertTriangle size={14} className="text-yellow-500" /> Hazard Hotspots
                     </h5>
-                    <div className="space-y-2">
+                    <div className="space-y-1">
                       {safetyStats.hotspots.map((hotspot: any) => (
-                        <div key={hotspot.id} className="relative group cursor-help flex justify-between items-center text-sm">
-                          <span className="text-zinc-300 border-b border-dashed border-zinc-600">{hotspot.type}</span>
+                        <div 
+                          key={hotspot.id} 
+                          className="flex justify-between items-center text-sm cursor-pointer hover:bg-zinc-800/50 p-1.5 -mx-1.5 rounded transition-colors"
+                          onMouseEnter={() => setHoveredHotspot(hotspot)}
+                          onMouseLeave={() => setHoveredHotspot(null)}
+                        >
+                          <span className="text-zinc-300">{hotspot.type}</span>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                             hotspot.severity === 'High' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
                           }`}>
                             {hotspot.severity}
                           </span>
-                          
-                          {/* Tooltip */}
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-zinc-800 text-zinc-200 text-xs rounded-lg p-3 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl border border-zinc-700">
-                            <div className="font-bold text-white mb-1 flex items-center gap-1">
-                              <AlertTriangle size={12} className={hotspot.severity === 'High' ? 'text-red-400' : 'text-yellow-400'} /> 
-                              {hotspot.type}
-                            </div>
-                            <div className="text-zinc-400 mb-2">{hotspot.description}</div>
-                            <div className="flex justify-between items-center pt-2 border-t border-zinc-700/50">
-                              <span className="text-zinc-500">Severity:</span>
-                              <span className={hotspot.severity === 'High' ? 'text-red-400 font-medium' : 'text-yellow-400 font-medium'}>{hotspot.severity}</span>
-                            </div>
-                            <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-zinc-800 border-b border-r border-zinc-700 transform rotate-45"></div>
-                          </div>
                         </div>
                       ))}
                     </div>
@@ -777,7 +845,102 @@ export default function SafeRoute() {
       </div>
 
       {/* Main Map Area */}
-      <div className="flex-1 relative z-0">
+      <div className="flex-1 relative z-0 overflow-hidden">
+        {/* Floating ETA & Distance Panel */}
+        {route && eta && distance && (
+          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[1000] bg-zinc-900/90 backdrop-blur-md border border-zinc-800 rounded-2xl shadow-2xl p-4 flex items-center gap-6 animate-in slide-in-from-top-4">
+            <div className="flex flex-col">
+              <span className="text-zinc-400 text-[10px] font-medium uppercase tracking-wider mb-0.5">Est. Time</span>
+              <span className="text-xl font-bold text-white flex items-center gap-2">
+                <Clock size={18} className="text-blue-400" />
+                {eta}
+              </span>
+            </div>
+            <div className="w-px h-10 bg-zinc-800"></div>
+            <div className="flex flex-col">
+              <span className="text-zinc-400 text-[10px] font-medium uppercase tracking-wider mb-0.5">Distance</span>
+              <span className="text-xl font-bold text-white flex items-center gap-2">
+                <Navigation size={18} className="text-emerald-400" />
+                {distance}
+              </span>
+            </div>
+            <div className="w-px h-10 bg-zinc-800"></div>
+            <button 
+              onClick={() => setShowDirections(true)}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors flex items-center gap-2"
+            >
+              <List size={16} />
+              Directions
+            </button>
+          </div>
+        )}
+
+        {/* Directions Side Panel */}
+        {showDirections && (
+          <div className="absolute top-0 right-0 bottom-0 w-96 bg-zinc-950/95 backdrop-blur-xl border-l border-zinc-800 z-[1001] flex flex-col shadow-2xl animate-in slide-in-from-right-8">
+            <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <List size={20} className="text-blue-400" />
+                Turn-by-Turn
+              </h2>
+              <button 
+                onClick={() => setShowDirections(false)}
+                className="text-zinc-400 hover:text-white transition-colors p-1 bg-zinc-800/50 hover:bg-zinc-800 rounded-lg"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+              {directions.map((step, idx) => (
+                <div key={idx} className="flex gap-3">
+                  <div className="mt-1 shrink-0">
+                    <div className="w-6 h-6 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-xs font-bold text-blue-400">
+                      {idx + 1}
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <div 
+                      className="text-sm text-zinc-200 leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: step.html_instructions }} 
+                    />
+                    <div className="text-xs text-zinc-500 mt-1.5 flex gap-2 font-medium">
+                      <span className="bg-zinc-900 px-1.5 py-0.5 rounded">{step.distance?.text}</span>
+                      <span className="bg-zinc-900 px-1.5 py-0.5 rounded">{step.duration?.text}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {directions.length === 0 && (
+                <div className="text-center text-zinc-500 mt-10">
+                  No directions available for this route.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Hovered Hotspot Modal */}
+        {hoveredHotspot && (
+          <div className="absolute bottom-6 right-6 z-[1000] bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-xl shadow-2xl p-4 w-72 animate-in fade-in slide-in-from-bottom-4">
+            <div className="flex items-start justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <div className={`p-1.5 rounded-lg ${hoveredHotspot.severity === 'High' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                  <AlertTriangle size={16} />
+                </div>
+                <h3 className="font-bold text-white text-sm">{hoveredHotspot.type}</h3>
+              </div>
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full ${
+                hoveredHotspot.severity === 'High' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
+              }`}>
+                {hoveredHotspot.severity} Risk
+              </span>
+            </div>
+            <p className="text-zinc-400 text-xs leading-relaxed">
+              {hoveredHotspot.description}
+            </p>
+          </div>
+        )}
+
         <MapContainer 
           center={mapCenter} 
           zoom={mapZoom} 
@@ -816,24 +979,15 @@ export default function SafeRoute() {
 
           {/* Hazard Hotspots */}
           {safetyStats?.hotspots?.map((hotspot: any) => (
-            <Marker key={hotspot.id} position={[hotspot.lat, hotspot.lng]} icon={customHazardIcon}>
-              <Tooltip direction="top" offset={[0, -10]} opacity={1} className="!bg-transparent !border-none !shadow-none !p-0">
-                <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 shadow-xl w-48 text-left">
-                  <div className="text-zinc-100 font-bold flex items-center gap-1.5 mb-1.5">
-                    <AlertTriangle size={14} className={hotspot.severity === 'High' ? 'text-red-500' : 'text-yellow-500'} /> 
-                    {hotspot.type}
-                  </div>
-                  <div className="text-zinc-400 text-xs mb-2 whitespace-normal leading-relaxed">
-                    {hotspot.description}
-                  </div>
-                  <div className={`text-xs font-semibold px-2 py-1 rounded bg-zinc-800 inline-block ${
-                    hotspot.severity === 'High' ? 'text-red-400' : 'text-yellow-400'
-                  }`}>
-                    {hotspot.severity} Risk
-                  </div>
-                </div>
-              </Tooltip>
-            </Marker>
+            <Marker 
+              key={hotspot.id} 
+              position={[hotspot.lat, hotspot.lng]} 
+              icon={customHazardIcon}
+              eventHandlers={{
+                mouseover: () => setHoveredHotspot(hotspot),
+                mouseout: () => setHoveredHotspot(null),
+              }}
+            />
           ))}
 
           {/* Fetched Facilities Along Route */}
