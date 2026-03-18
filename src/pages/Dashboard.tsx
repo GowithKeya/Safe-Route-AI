@@ -1,10 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { AlertTriangle, Navigation, Activity, ShieldAlert, MapPin, Search, Layers, X, Clock, Settings2, Plus, Minus, Crosshair, ChevronLeft, ChevronRight, Home, Sparkles } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, CircleMarker } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+
+function decodePolyline(encoded: string) {
+  let points = [];
+  let index = 0, len = encoded.length;
+  let lat = 0, lng = 0;
+
+  while (index < len) {
+    let b, shift = 0, result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lng += dlng;
+
+    points.push([lat / 1e5, lng / 1e5] as [number, number]);
+  }
+  return points;
+}
 
 // Fix for default marker icons in Leaflet with React
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -14,23 +44,31 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const customAmbulanceIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1 .4-1 1v10H2v-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
+const getVehicleIcon = (type: string) => {
+  let color = '#ef4444'; // red for ambulance
+  // Ambulance SVG (Truck with a cross)
+  let iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1 .4-1 1v10H2v-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/><path d="M14 8h-4v4h4V8z"/></svg>';
 
-const customFireIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
+  if (type === 'fire') {
+    color = '#f97316'; // orange
+    // Fire Truck SVG (Truck with a ladder)
+    iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 17h4V5H2v12h3"/><path d="M20 17h2v-3.34a4 4 0 0 0-1.17-2.83L19 9h-5"/><path d="M14 17h1"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/><path d="M2 9h8"/><path d="M2 13h8"/></svg>';
+  } else if (type === 'police') {
+    color = '#3b82f6'; // blue
+    // Police Car SVG (Car with a siren)
+    iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1 .4-1 1v10H2v-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/><path d="M10 6h4v3h-4z"/></svg>';
+  }
 
-const customPoliceIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
+  return L.divIcon({
+    className: 'custom-vehicle-icon',
+    html: `<div style="background-color: ${color}; color: white; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 50%; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 2px solid white;">
+      ${iconSvg}
+    </div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+    popupAnchor: [0, -18]
+  });
+};
 
 const customHospitalIcon = new L.Icon({
   iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'),
@@ -67,15 +105,19 @@ const center: [number, number] = [28.6139, 77.2090]; // New Delhi
 const socket = io();
 
 // Map Controller Component
-function MapController({ center, zoom }: { center: [number, number], zoom: number }) {
+function MapController({ center, zoom, bounds }: { center: [number, number], zoom: number, bounds?: L.LatLngBoundsExpression }) {
   const map = useMap();
   
   useEffect(() => {
-    map.flyTo(center, zoom, {
-      animate: true,
-      duration: 1.5
-    });
-  }, [center, zoom, map]);
+    if (bounds) {
+      map.fitBounds(bounds, { padding: [50, 50] });
+    } else {
+      map.flyTo(center, zoom, {
+        animate: true,
+        duration: 1.5
+      });
+    }
+  }, [center, zoom, bounds, map]);
 
   return null;
 }
@@ -95,6 +137,12 @@ export default function Dashboard() {
   const [isLoadingTraffic, setIsLoadingTraffic] = useState(false);
   const [fleet, setFleet] = useState<any[]>([]);
   const [showTraffic, setShowTraffic] = useState(false);
+  const [trafficFilters, setTrafficFilters] = useState({
+    clear: true,
+    moderate: true,
+    heavy: true,
+    severe: true
+  });
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [vehiclePaths, setVehiclePaths] = useState<Record<string, {lat: number, lng: number, timestamp: number}[]>>({});
   const [showHistory, setShowHistory] = useState(false);
@@ -108,9 +156,41 @@ export default function Dashboard() {
   const [showPreferences, setShowPreferences] = useState(false);
   const [mapZoom, setMapZoom] = useState(12);
   const [mapCenter, setMapCenter] = useState<[number, number]>(center);
+  const [mapBounds, setMapBounds] = useState<L.LatLngBoundsExpression | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [destinationCoords, setDestinationCoords] = useState<[number, number] | null>(null);
+
+  const [incidentRoute, setIncidentRoute] = useState<[number, number][] | null>(null);
+  const [incidentVehicle, setIncidentVehicle] = useState<any | null>(null);
+  const [activeDispatch, setActiveDispatch] = useState<{ vehicleId: string, destination: [number, number], notified: boolean } | null>(null);
+  const [notification, setNotification] = useState<{ message: string, type: 'info' | 'warning' | 'success' } | null>(null);
+
+  // Clear notification after 5 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+
+  // Check if dispatched vehicle is nearing destination
+  useEffect(() => {
+    if (activeDispatch && !activeDispatch.notified) {
+      const vehicle = fleet.find(v => v.id === activeDispatch.vehicleId);
+      if (vehicle) {
+        const dist = Math.sqrt(Math.pow(vehicle.lat - activeDispatch.destination[0], 2) + Math.pow(vehicle.lng - activeDispatch.destination[1], 2));
+        // Roughly 500 meters (0.005 degrees)
+        if (dist < 0.005) {
+          setNotification({
+            message: `Unit ${vehicle.id} is arriving at the incident scene.`,
+            type: 'warning'
+          });
+          setActiveDispatch(prev => prev ? { ...prev, notified: true } : null);
+        }
+      }
+    }
+  }, [fleet, activeDispatch]);
 
   // Mock route from center to AIIMS
   const mockRoute: [number, number][] = [
@@ -128,6 +208,67 @@ export default function Dashboard() {
   ];
 
   const activeVehicle = selectedVehicle ? (fleet.find(v => v.id === selectedVehicle.id) || vehicles[selectedVehicle.id] || selectedVehicle) : null;
+
+  const handleDispatchNearest = async (acc: [number, number]) => {
+    let nearest: any = null;
+    let minDistance = Infinity;
+    
+    // Check fleet
+    fleet.forEach(v => {
+      const dist = Math.sqrt(Math.pow(v.lat - acc[0], 2) + Math.pow(v.lng - acc[1], 2));
+      if (dist < minDistance) {
+        minDistance = dist;
+        nearest = v;
+      }
+    });
+
+    if (nearest) {
+      setIncidentVehicle(nearest);
+      setActiveDispatch({ vehicleId: nearest.id, destination: acc, notified: false });
+      setNotification({ message: `Dispatching ${nearest.id} to incident.`, type: 'info' });
+      try {
+        const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${nearest.lng},${nearest.lat};${acc[1]},${acc[0]}?overview=full&geometries=polyline`);
+        const data = await res.json();
+        if (data.routes && data.routes[0]) {
+          const decoded = decodePolyline(data.routes[0].geometry);
+          setIncidentRoute(decoded);
+          setMapBounds([
+            [nearest.lat, nearest.lng],
+            acc
+          ]);
+        }
+      } catch (e) {
+        console.error("Failed to calculate incident route", e);
+        setIncidentRoute([
+          [nearest.lat, nearest.lng],
+          acc
+        ]);
+      }
+    }
+  };
+
+  const handleCalculateRouteToVehicle = async (v: any) => {
+    const origin = mapCenter;
+    const dest = [v.lat, v.lng] as [number, number];
+    try {
+      const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin[1]},${origin[0]};${dest[1]},${dest[0]}?overview=full&geometries=polyline`);
+      const data = await res.json();
+      if (data.routes && data.routes[0]) {
+        const decoded = decodePolyline(data.routes[0].geometry);
+        setIncidentRoute(decoded);
+        setMapBounds([
+          origin,
+          dest
+        ]);
+      }
+    } catch (e) {
+      console.error("Failed to calculate route to vehicle", e);
+      setIncidentRoute([
+        origin,
+        dest
+      ]);
+    }
+  };
 
   useEffect(() => {
     if (followVehicle && activeVehicle) {
@@ -216,10 +357,13 @@ export default function Dashboard() {
               let level = 'clear';
               let color = '#22c55e'; // green
               
-              if (seed > 85) { 
+              if (seed > 95) {
+                level = 'severe';
+                color = '#7f1d1d'; // dark red
+              } else if (seed > 80) { 
                 level = 'heavy'; 
                 color = '#ef4444'; // red
-              } else if (seed > 50) { 
+              } else if (seed > 40) { 
                 level = 'moderate'; 
                 color = '#eab308'; // yellow
               }
@@ -378,7 +522,23 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex h-screen bg-zinc-950 text-white overflow-hidden">
+    <div className="flex h-screen bg-zinc-950 text-white overflow-hidden relative">
+      {/* Notification Toast */}
+      {notification && (
+        <div className={`absolute top-6 right-6 z-50 px-4 py-3 rounded-lg shadow-lg border flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 ${
+          notification.type === 'warning' ? 'bg-red-500/20 border-red-500/50 text-red-100' :
+          notification.type === 'success' ? 'bg-green-500/20 border-green-500/50 text-green-100' :
+          'bg-blue-500/20 border-blue-500/50 text-blue-100'
+        }`}>
+          {notification.type === 'warning' && <AlertTriangle size={20} className="text-red-400" />}
+          {notification.type === 'info' && <Activity size={20} className="text-blue-400" />}
+          <span className="font-medium">{notification.message}</span>
+          <button onClick={() => setNotification(null)} className="ml-2 text-zinc-400 hover:text-white">
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Sidebar */}
       <div className="w-80 bg-zinc-900 border-r border-zinc-800 flex flex-col">
         <div className="p-6 border-b border-zinc-800">
@@ -418,21 +578,67 @@ export default function Dashboard() {
             <div>
               <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-3">Map Layers</h3>
               <div className="space-y-3">
-                <button 
-                  onClick={() => setShowTraffic(!showTraffic)}
-                  className={`w-full py-2 px-4 rounded-lg flex items-center justify-center gap-2 font-medium transition-all ${
-                    showTraffic 
-                      ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)]' 
-                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
-                  }`}
-                >
-                  {isLoadingTraffic && showTraffic ? (
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <Layers size={18} />
+                <div className="space-y-2">
+                  <button 
+                    onClick={() => setShowTraffic(!showTraffic)}
+                    className={`w-full py-2 px-4 rounded-lg flex items-center justify-center gap-2 font-medium transition-all ${
+                      showTraffic 
+                        ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-[0_0_15px_rgba(59,130,246,0.5)]' 
+                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
+                    }`}
+                  >
+                    {isLoadingTraffic && showTraffic ? (
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <Layers size={18} />
+                    )}
+                    {showTraffic ? (isLoadingTraffic ? 'Loading AI Traffic...' : 'Hide Live Traffic') : 'Show Live Traffic'}
+                  </button>
+                  
+                  {showTraffic && (
+                    <div className="bg-zinc-950 rounded-lg p-3 border border-zinc-800 space-y-2">
+                      <div className="text-xs font-medium text-zinc-400 mb-2">Traffic Filters</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={trafficFilters.clear} 
+                            onChange={(e) => setTrafficFilters({...trafficFilters, clear: e.target.checked})}
+                            className="rounded border-zinc-700 bg-zinc-800 text-green-500 focus:ring-green-500"
+                          />
+                          <span className="w-2 h-2 rounded-full bg-green-500"></span> Clear
+                        </label>
+                        <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={trafficFilters.moderate} 
+                            onChange={(e) => setTrafficFilters({...trafficFilters, moderate: e.target.checked})}
+                            className="rounded border-zinc-700 bg-zinc-800 text-yellow-500 focus:ring-yellow-500"
+                          />
+                          <span className="w-2 h-2 rounded-full bg-yellow-500"></span> Moderate
+                        </label>
+                        <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={trafficFilters.heavy} 
+                            onChange={(e) => setTrafficFilters({...trafficFilters, heavy: e.target.checked})}
+                            className="rounded border-zinc-700 bg-zinc-800 text-red-500 focus:ring-red-500"
+                          />
+                          <span className="w-2 h-2 rounded-full bg-red-500"></span> Heavy
+                        </label>
+                        <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={trafficFilters.severe} 
+                            onChange={(e) => setTrafficFilters({...trafficFilters, severe: e.target.checked})}
+                            className="rounded border-zinc-700 bg-zinc-800 text-red-900 focus:ring-red-900"
+                          />
+                          <span className="w-2 h-2 rounded-full bg-red-900"></span> Severe
+                        </label>
+                      </div>
+                    </div>
                   )}
-                  {showTraffic ? (isLoadingTraffic ? 'Loading AI Traffic...' : 'Hide Live Traffic') : 'Show Live Traffic'}
-                </button>
+                </div>
                 
                 <div className="bg-zinc-950 rounded-lg p-3 border border-zinc-800">
                   <div className="flex justify-between items-center mb-2">
@@ -609,14 +815,57 @@ export default function Dashboard() {
               <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-3">Reported Incidents</h3>
               <div className="space-y-2">
                 {accidents.map((acc, i) => (
-                  <div key={i} className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-3">
-                    <AlertTriangle className="text-red-500 shrink-0" size={18} />
-                    <div>
-                      <p className="text-sm font-medium text-red-200">Accident Reported</p>
-                      <p className="text-xs text-red-400/70">Near Connaught Place • 2 mins ago</p>
+                  <div key={i} className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex flex-col gap-2">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="text-red-500 shrink-0" size={18} />
+                      <div>
+                        <p className="text-sm font-medium text-red-200">Accident Reported</p>
+                        <p className="text-xs text-red-400/70">Near Connaught Place • 2 mins ago</p>
+                      </div>
                     </div>
+                    <button 
+                      onClick={() => handleDispatchNearest(acc)}
+                      className="mt-1 w-full py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs font-medium rounded transition-colors border border-red-500/30"
+                    >
+                      Dispatch Nearest Unit
+                    </button>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-3">Active Fleet</h3>
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                {fleet.map((v) => {
+                  const hasAlert = v.status === 'Investigating Scene' || v.status === 'Responding to Fire' || v.status === 'En Route to Incident';
+                  return (
+                    <div 
+                      key={v.id} 
+                      onClick={() => setSelectedVehicle(v)}
+                      className={`bg-zinc-950 border ${hasAlert ? 'border-red-500/80 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'border-zinc-800'} rounded-lg p-3 flex items-center justify-between cursor-pointer hover:bg-zinc-900 transition-colors`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`p-1.5 rounded-full ${
+                          v.type === 'ambulance' ? 'bg-red-500/20 text-red-500' :
+                          v.type === 'fire' ? 'bg-orange-500/20 text-orange-500' :
+                          v.type === 'police' ? 'bg-blue-500/20 text-blue-500' :
+                          'bg-zinc-500/20 text-zinc-500'
+                        }`}>
+                          <Activity size={16} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-bold text-white">{v.id}</p>
+                            {hasAlert && <AlertTriangle size={14} className="text-red-500 animate-pulse" />}
+                          </div>
+                          <p className={`text-xs ${hasAlert ? 'text-red-400 font-medium' : 'text-zinc-400'}`}>{v.status}</p>
+                        </div>
+                      </div>
+                      <ChevronRight size={16} className="text-zinc-600" />
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -656,7 +905,11 @@ export default function Dashboard() {
                       <span className={`text-sm font-medium ${
                         activeVehicle.status?.includes('Responding') || activeVehicle.status?.includes('En Route') || emergencyMode && activeVehicle.id === 'AMB-101'
                           ? 'text-red-400' 
-                          : 'text-green-400'
+                          : activeVehicle.status === 'Investigating Scene'
+                            ? 'text-orange-400 animate-pulse'
+                            : activeVehicle.status === 'Patrolling'
+                              ? 'text-blue-400'
+                              : 'text-green-400'
                       }`}>
                         {activeVehicle.id === 'AMB-101' ? (emergencyMode ? 'Emergency Priority' : 'Standby') : activeVehicle.status || 'Active'}
                       </span>
@@ -670,7 +923,7 @@ export default function Dashboard() {
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-zinc-500">Speed</span>
                       <span className="font-mono text-xs text-zinc-300">
-                        {activeVehicle.status?.includes('Responding') || activeVehicle.status?.includes('En Route') ? '65 km/h' : '0 km/h'}
+                        {activeVehicle.speed ? `${Math.round(activeVehicle.speed)} km/h` : (activeVehicle.status?.includes('Responding') || activeVehicle.status?.includes('En Route') ? '65 km/h' : '0 km/h')}
                       </span>
                     </div>
                   </div>
@@ -735,14 +988,16 @@ export default function Dashboard() {
           style={{ width: '100%', height: '100%' }}
           zoomControl={false}
         >
-          <MapController center={mapCenter} zoom={mapZoom} />
+          <MapController center={mapCenter} zoom={mapZoom} bounds={mapBounds} />
           <TileLayer
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           />
 
           {/* AI Traffic Prediction Overlay */}
-          {showTraffic && trafficSegments.map(seg => (
+          {showTraffic && trafficSegments
+            .filter(seg => trafficFilters[seg.level as keyof typeof trafficFilters])
+            .map(seg => (
             <Polyline
               key={`traffic-${seg.id}`}
               positions={seg.positions}
@@ -781,7 +1036,7 @@ export default function Dashboard() {
           {/* Current Location Marker */}
           <Marker 
             position={center} 
-            icon={customAmbulanceIcon}
+            icon={getVehicleIcon('ambulance')}
             eventHandlers={{
               click: () => {
                 setSelectedVehicle({
@@ -830,41 +1085,83 @@ export default function Dashboard() {
 
           {/* Simulated Fleet Vehicles */}
           {fleet.map((v) => {
-            let icon = customAmbulanceIcon;
-            if (v.type === 'fire') icon = customFireIcon;
-            else if (v.type === 'police') icon = customPoliceIcon;
-
+            const hasAlert = v.status === 'Investigating Scene' || v.status === 'Responding to Fire' || v.status === 'En Route to Incident';
             return (
-              <Marker 
-                key={v.id} 
-                position={[v.lat, v.lng]} 
-                icon={icon}
-                eventHandlers={{
-                  click: () => setSelectedVehicle(v),
-                }}
-              >
-                <Popup>
-                  <div className="text-zinc-900 font-medium">{v.id}</div>
-                  <div className="text-zinc-500 text-sm">Type: {v.type.toUpperCase()}</div>
-                  <div className="text-zinc-500 text-sm">Status: {v.status}</div>
+              <React.Fragment key={v.id}>
+                {hasAlert && (
+                  <CircleMarker 
+                    center={[v.lat, v.lng]} 
+                    radius={20} 
+                    color="#ef4444" 
+                    fillColor="#ef4444" 
+                    fillOpacity={0.2} 
+                    className="animate-ping" 
+                  />
+                )}
+                <Marker 
+                  position={[v.lat, v.lng]} 
+                  icon={getVehicleIcon(v.type)}
+                  eventHandlers={{
+                    click: () => setSelectedVehicle(v),
+                  }}
+                >
+                  <Popup>
+                    <div className="text-zinc-900 font-bold mb-1 flex items-center gap-1">
+                      {v.id}
+                      {hasAlert && <AlertTriangle size={14} className="text-red-500 animate-pulse" />}
+                    </div>
+                    <div className="text-zinc-600 text-xs mb-1">
+                      <span className="font-semibold text-zinc-800">Type:</span> {v.type.toUpperCase()}
+                    </div>
+                    <div className="text-zinc-600 text-xs mb-1 flex items-center gap-1">
+                    <span className="font-semibold text-zinc-800">Status:</span> 
+                    <span className={`px-1.5 py-0.5 rounded-sm font-medium ${
+                      v.status === 'Investigating Scene' ? 'bg-orange-100 text-orange-700 animate-pulse' :
+                      v.status === 'Responding to Fire' ? 'bg-red-100 text-red-700' :
+                      v.status === 'En Route to Incident' ? 'bg-red-100 text-red-700' :
+                      v.status === 'Patrolling' ? 'bg-blue-100 text-blue-700' :
+                      'bg-zinc-100 text-zinc-700'
+                    }`}>
+                      {v.status}
+                    </span>
+                  </div>
+                  <div className="text-zinc-600 text-xs mb-1">
+                    <span className="font-semibold text-zinc-800">Speed:</span> {v.speed ? `${Math.round(v.speed)} km/h` : '0 km/h'}
+                  </div>
+                  <div className="text-zinc-600 text-xs mb-2">
+                    <span className="font-semibold text-zinc-800">Location:</span> {v.lat.toFixed(4)}, {v.lng.toFixed(4)}
+                  </div>
+                  <button 
+                    onClick={() => handleCalculateRouteToVehicle(v)}
+                    className="w-full py-1.5 bg-blue-500 text-white text-xs font-medium rounded hover:bg-blue-600 transition-colors"
+                  >
+                    Calculate Route to Vehicle
+                  </button>
                 </Popup>
               </Marker>
-            );
-          })}
+            </React.Fragment>
+          );
+        })}
 
           {/* Other User Vehicles */}
           {Object.values(vehicles).map((v: any) => (
             <Marker 
               key={v.id} 
               position={[v.lat, v.lng]} 
-              icon={customAmbulanceIcon}
+              icon={getVehicleIcon(v.type || 'ambulance')}
               eventHandlers={{
-                click: () => setSelectedVehicle({ ...v, type: 'user vehicle', status: 'Active' }),
+                click: () => setSelectedVehicle({ ...v, type: v.type || 'user vehicle', status: 'Active' }),
               }}
             >
               <Popup>
                 <div className="text-zinc-900 font-medium">{v.id}</div>
-                <div className="text-zinc-500 text-sm">User Vehicle</div>
+                <div className="text-zinc-500 text-sm mb-2">User Vehicle</div>
+                <button 
+                  onClick={() => handleCalculateRouteToVehicle(v)}
+                  className="w-full py-1.5 bg-blue-500 text-white text-xs font-medium rounded hover:bg-blue-600 transition-colors"
+                >
+                  Calculate Route to Vehicle
+                </button>
               </Popup>
             </Marker>
           ))}
@@ -873,7 +1170,13 @@ export default function Dashboard() {
           {accidents.map((acc, i) => (
             <Marker key={`acc-${i}`} position={acc} icon={customAccidentIcon}>
               <Popup>
-                <div className="text-red-600 font-medium">Reported Accident</div>
+                <div className="text-red-600 font-medium mb-2">Reported Accident</div>
+                <button 
+                  onClick={() => handleDispatchNearest(acc)}
+                  className="w-full py-1.5 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition-colors"
+                >
+                  Dispatch Nearest Unit
+                </button>
               </Popup>
             </Marker>
           ))}
@@ -885,6 +1188,17 @@ export default function Dashboard() {
               color={emergencyMode ? '#ef4444' : '#3b82f6'} 
               weight={6} 
               opacity={0.8} 
+            />
+          )}
+
+          {/* Incident Route */}
+          {incidentRoute && (
+            <Polyline 
+              positions={incidentRoute} 
+              color="#f59e0b" 
+              weight={5} 
+              opacity={0.8}
+              dashArray="10, 10"
             />
           )}
         </MapContainer>

@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, Tooltip } from 'react-leaflet';
-import { MapPin, Navigation, ShieldAlert, AlertTriangle, ShieldCheck, Clock, Layers, Crosshair, Plus, Minus, ChevronLeft, Home, Search, Activity, Sparkles, Save, Bookmark, Trash2, X, List } from 'lucide-react';
+import { MapPin, Navigation, ShieldAlert, AlertTriangle, ShieldCheck, Clock, Layers, Crosshair, Plus, Minus, ChevronLeft, Home, Search, Activity, Sparkles, Save, Bookmark, Trash2, X, List, Share2 } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { useLoadScript } from '@react-google-maps/api';
+
+const libraries: ("places")[] = ["places"];
 
 // Fix for default marker icons in Leaflet with React
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -112,11 +115,19 @@ const defaultCenter: [number, number] = [28.6139, 77.2090]; // New Delhi
 const socket = io();
 
 export default function SafeRoute() {
+  const { isLoaded } = useLoadScript({
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
+    libraries,
+  });
+
   const navigate = useNavigate();
   const [mapCenter, setMapCenter] = useState<[number, number]>(defaultCenter);
   const [mapZoom, setMapZoom] = useState(12);
   const [mapBounds, setMapBounds] = useState<L.LatLngBoundsExpression | undefined>(undefined);
   const [showTraffic, setShowTraffic] = useState(false);
+  const [historicalDate, setHistoricalDate] = useState<string>('');
+  const [historicalTime, setHistoricalTime] = useState<string>('');
+  const [showHistoricalTraffic, setShowHistoricalTraffic] = useState(false);
   
   const [originQuery, setOriginQuery] = useState('');
   const [destQuery, setDestQuery] = useState('');
@@ -160,9 +171,15 @@ export default function SafeRoute() {
 
   const handleSaveRoute = () => {
     if (!origin || !destination || !route || !safetyStats || isRouteSaved) return;
+    
+    const defaultName = `${origin.name} to ${destination.name}`;
+    const customName = window.prompt("Enter a name for this saved route:", defaultName);
+    
+    if (customName === null) return; // User cancelled
+    
     const newRoute = {
       id: Date.now().toString(),
-      name: `${origin.name} to ${destination.name}`,
+      name: customName.trim() || defaultName,
       origin,
       destination,
       route,
@@ -176,6 +193,25 @@ export default function SafeRoute() {
     const updated = [newRoute, ...savedRoutes];
     setSavedRoutes(updated);
     localStorage.setItem('savedSafeRoutes', JSON.stringify(updated));
+  };
+
+  const [shareCopied, setShareCopied] = useState(false);
+  const handleShareRoute = () => {
+    if (!origin || !destination) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('originLat', origin.lat.toString());
+    url.searchParams.set('originLng', origin.lng.toString());
+    url.searchParams.set('originName', origin.name);
+    url.searchParams.set('destLat', destination.lat.toString());
+    url.searchParams.set('destLng', destination.lng.toString());
+    url.searchParams.set('destName', destination.name);
+    
+    navigator.clipboard.writeText(url.toString()).then(() => {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    }).catch(err => {
+      console.error('Failed to copy share link: ', err);
+    });
   };
 
   const handleLoadRoute = (savedRoute: any) => {
@@ -239,7 +275,7 @@ export default function SafeRoute() {
     };
   }, []);
 
-  // AI Search with Nominatim & Local POIs
+  // AI Search with Google Maps Places & Local POIs
   const searchLocation = async (query: string, setResults: any) => {
     if (query.length < 2) {
       setResults([]);
@@ -277,8 +313,40 @@ export default function SafeRoute() {
       }
     });
 
-    // 2. AI Search with Nominatim for general locations
-    if (results.length < 5) {
+    // 2. Google Maps Places Search
+    if (results.length < 5 && isLoaded && window.google) {
+      try {
+        const autocompleteService = new window.google.maps.places.AutocompleteService();
+        const predictions = await new Promise<any[]>((resolve) => {
+          autocompleteService.getPlacePredictions({ input: query }, (preds, status) => {
+            if (status === window.google.maps.places.PlacesServiceStatus.OK && preds) {
+              resolve(preds);
+            } else {
+              resolve([]);
+            }
+          });
+        });
+        
+        predictions.forEach((p) => {
+          if (!results.some(r => r.name === p.structured_formatting.main_text)) {
+            const trafficLevels = ['Light', 'Moderate', 'Heavy'];
+            const traffic = trafficLevels[Math.floor(Math.random() * 3)];
+            results.push({
+              id: `gmap-${p.place_id}`,
+              name: p.structured_formatting.main_text,
+              fullName: p.description,
+              type: 'Location',
+              traffic: traffic,
+              isSafeZone: false,
+              placeId: p.place_id,
+            });
+          }
+        });
+      } catch (e) {
+        console.error("Google Maps Search failed", e);
+      }
+    } else if (results.length < 5) {
+      // Fallback to Nominatim
       try {
         const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
         const data = await res.json();
@@ -300,7 +368,7 @@ export default function SafeRoute() {
           }
         });
       } catch (e) {
-        console.error("AI Search failed", e);
+        console.error("Nominatim Search failed", e);
       }
     }
     
@@ -397,13 +465,34 @@ export default function SafeRoute() {
     }
   };
 
-  const calculateSafeRoute = async () => {
-    if (!origin || !destination) return;
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const originLat = url.searchParams.get('originLat');
+    const originLng = url.searchParams.get('originLng');
+    const originName = url.searchParams.get('originName');
+    const destLat = url.searchParams.get('destLat');
+    const destLng = url.searchParams.get('destLng');
+    const destName = url.searchParams.get('destName');
+
+    if (originLat && originLng && originName && destLat && destLng && destName) {
+      const o = { lat: parseFloat(originLat), lng: parseFloat(originLng), name: originName };
+      const d = { lat: parseFloat(destLat), lng: parseFloat(destLng), name: destName };
+      setOrigin(o);
+      setOriginQuery(originName);
+      setDestination(d);
+      setDestQuery(destName);
+      
+      calculateSafeRouteWithArgs(o, d);
+    }
+  }, []);
+
+  const calculateSafeRouteWithArgs = async (o: any, d: any) => {
+    if (!o || !d) return;
     
     setIsCalculating(true);
     
     try {
-      const res = await fetch(`/api/directions?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}`);
+      const res = await fetch(`/api/directions?origin=${o.lat},${o.lng}&destination=${d.lat},${d.lng}`);
       if (res.ok) {
         const data = await res.json();
         if (data.routes && data.routes.length > 0) {
@@ -417,12 +506,12 @@ export default function SafeRoute() {
           const decodedRoute = decodePolyline(encoded) as [number, number][];
           setRoute(decodedRoute);
           
-          setSafetyStats(generateRouteSafetyAnalysis(decodedRoute, destination.name));
+          setSafetyStats(generateRouteSafetyAnalysis(decodedRoute, d.name));
           
           // Set bounds to fit the route
           setMapBounds([
-            [origin.lat, origin.lng],
-            [destination.lat, destination.lng]
+            [o.lat, o.lng],
+            [d.lat, d.lng]
           ]);
           
           // Fetch emergency services along the route
@@ -434,6 +523,52 @@ export default function SafeRoute() {
     } finally {
       setIsCalculating(false);
     }
+  };
+
+  const calculateSafeRoute = async () => {
+    return calculateSafeRouteWithArgs(origin, destination);
+  };
+
+  // Generate colored route segments based on historical traffic
+  const getHistoricalTrafficSegments = () => {
+    if (!route || route.length === 0) return [];
+    
+    // Use date/time to seed the pseudo-random traffic generation
+    const seedStr = historicalDate + historicalTime;
+    let seed = 0;
+    for (let i = 0; i < seedStr.length; i++) {
+      seed += seedStr.charCodeAt(i);
+    }
+    seed = seed || 1;
+
+    const segments: { positions: [number, number][], color: string }[] = [];
+    let currentSegment: [number, number][] = [];
+    let currentColor = '#3b82f6'; // Default blue
+
+    route.forEach((point, i) => {
+      // Deterministic pseudo-random traffic score (0 to 1)
+      const trafficScore = Math.abs(Math.sin((i + seed) * 0.1));
+      
+      let pointColor = '#3b82f6'; // Clear (Blue)
+      if (trafficScore > 0.85) pointColor = '#ef4444'; // Heavy (Red)
+      else if (trafficScore > 0.6) pointColor = '#f59e0b'; // Moderate (Orange)
+      else if (trafficScore > 0.4) pointColor = '#eab308'; // Light (Yellow)
+
+      if (pointColor !== currentColor && currentSegment.length > 0) {
+        currentSegment.push(point); // Connect the segments
+        segments.push({ positions: currentSegment, color: currentColor });
+        currentSegment = [point];
+        currentColor = pointColor;
+      } else {
+        currentSegment.push(point);
+      }
+    });
+
+    if (currentSegment.length > 0) {
+      segments.push({ positions: currentSegment, color: currentColor });
+    }
+
+    return segments;
   };
 
   // Generate colored route segments based on safety hotspots with gradient overlay
@@ -486,7 +621,13 @@ export default function SafeRoute() {
       }
     };
 
-    const segments: { positions: [number, number][], color: string }[] = [];
+    const getClassName = (score: number) => {
+      if (score < 0.4) return 'route-risk';
+      if (score > 0.7) return 'route-safe';
+      return '';
+    };
+
+    const segments: { positions: [number, number][], color: string, className?: string }[] = [];
     
     // Group points into segments based on color bins to optimize rendering
     // 20 bins means 5% score increments for a smooth gradient
@@ -502,7 +643,8 @@ export default function SafeRoute() {
         currentSegment.positions.push(route[i]); // Connect to next point to avoid gaps
         segments.push({
           positions: currentSegment.positions,
-          color: getColor(currentSegment.colorBin / 20)
+          color: getColor(currentSegment.colorBin / 20),
+          className: getClassName(currentSegment.colorBin / 20)
         });
         currentSegment = { positions: [route[i]], colorBin: bin };
       }
@@ -510,11 +652,54 @@ export default function SafeRoute() {
     if (currentSegment.positions.length > 1) {
       segments.push({
         positions: currentSegment.positions,
-        color: getColor(currentSegment.colorBin / 20)
+        color: getColor(currentSegment.colorBin / 20),
+        className: getClassName(currentSegment.colorBin / 20)
       });
     }
     
     return segments;
+  };
+
+  const handleSelectOrigin = (res: any) => {
+    if (res.placeId && window.google) {
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ placeId: res.placeId }, (results, status) => {
+        if (status === 'OK' && results && results[0]) {
+          const location = results[0].geometry.location;
+          const newOrigin = { ...res, lat: location.lat(), lng: location.lng() };
+          setOrigin(newOrigin);
+          setOriginQuery(res.name);
+          setOriginResults([]);
+          setMapCenter([location.lat(), location.lng()]);
+        }
+      });
+    } else {
+      setOrigin(res);
+      setOriginQuery(res.name);
+      setOriginResults([]);
+      if (res.lat && res.lng) setMapCenter([res.lat, res.lng]);
+    }
+  };
+
+  const handleSelectDestination = (res: any) => {
+    if (res.placeId && window.google) {
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ placeId: res.placeId }, (results, status) => {
+        if (status === 'OK' && results && results[0]) {
+          const location = results[0].geometry.location;
+          const newDest = { ...res, lat: location.lat(), lng: location.lng() };
+          setDestination(newDest);
+          setDestQuery(res.name);
+          setDestResults([]);
+          setMapCenter([location.lat(), location.lng()]);
+        }
+      });
+    } else {
+      setDestination(res);
+      setDestQuery(res.name);
+      setDestResults([]);
+      if (res.lat && res.lng) setMapCenter([res.lat, res.lng]);
+    }
   };
 
   return (
@@ -547,14 +732,38 @@ export default function SafeRoute() {
                 value={originQuery}
                 onChange={(e) => { setOriginQuery(e.target.value); setOrigin(null); }}
                 placeholder="AI Search starting point..." 
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg py-3 pl-10 pr-4 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg py-3 pl-10 pr-10 text-sm focus:outline-none focus:border-blue-500 transition-colors"
               />
+              <button 
+                onClick={() => {
+                  if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                      (position) => {
+                        const { latitude, longitude } = position.coords;
+                        setMapCenter([latitude, longitude]);
+                        setMapZoom(15);
+                        if (!originQuery || !origin) {
+                          setOrigin({ lat: latitude, lng: longitude, name: 'Current Location' });
+                          setOriginQuery('Current Location');
+                        }
+                      },
+                      (error) => {
+                        console.error("Error getting location: ", error);
+                      }
+                    );
+                  }
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-blue-400 transition-colors"
+                title="Use Current Location"
+              >
+                <Navigation size={16} />
+              </button>
               {originResults.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl overflow-hidden z-50">
                   {originResults.map((res, i) => (
                     <button
                       key={i}
-                      onClick={() => { setOrigin(res); setOriginQuery(res.name); setOriginResults([]); }}
+                      onClick={() => handleSelectOrigin(res)}
                       className="w-full text-left px-4 py-3 hover:bg-zinc-700 flex items-start gap-3 transition-colors border-b border-zinc-700/50 last:border-0"
                     >
                       <div className="mt-0.5 shrink-0">
@@ -598,7 +807,7 @@ export default function SafeRoute() {
                   {destResults.map((res, i) => (
                     <button
                       key={i}
-                      onClick={() => { setDestination(res); setDestQuery(res.name); setDestResults([]); }}
+                      onClick={() => handleSelectDestination(res)}
                       className="w-full text-left px-4 py-3 hover:bg-zinc-700 flex items-start gap-3 transition-colors border-b border-zinc-700/50 last:border-0"
                     >
                       <div className="mt-0.5 shrink-0">
@@ -667,6 +876,54 @@ export default function SafeRoute() {
               )}
             </div>
 
+            {/* Live Traffic Toggle */}
+            <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 transition-all duration-300">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Activity size={16} className={showTraffic ? "text-blue-400 animate-pulse" : "text-zinc-500"} />
+                  <span className="text-sm font-medium text-zinc-300">Live Traffic Layer</span>
+                </div>
+                <button
+                  onClick={() => {
+                    const nextState = !showTraffic;
+                    setShowTraffic(nextState);
+                    if (nextState) setShowHistoricalTraffic(false);
+                  }}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    showTraffic ? 'bg-blue-500' : 'bg-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                      showTraffic ? 'translate-x-5' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+              
+              {/* Traffic Legend */}
+              <div className={`overflow-hidden transition-all duration-300 ${showTraffic ? 'max-h-12 opacity-100 mt-3 pt-3 border-t border-zinc-800/50' : 'max-h-0 opacity-0 mt-0 pt-0 border-transparent'}`}>
+                <div className="flex items-center justify-between text-[10px] text-zinc-400 font-medium uppercase tracking-wider">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-[#22c55e]"></div>
+                    <span>Fast</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-[#f59e0b]"></div>
+                    <span>Moderate</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-[#ef4444]"></div>
+                    <span>Slow</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-[#7f1d1d]"></div>
+                    <span>Heavy</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {savedRoutes.length > 0 && (
               <div className="pt-6 border-t border-zinc-800">
                 <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -709,21 +966,29 @@ export default function SafeRoute() {
               <div className="bg-zinc-950 rounded-xl p-4 border border-zinc-800">
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Route Summary</h3>
-                  <button 
-                    onClick={handleSaveRoute}
-                    disabled={isRouteSaved}
-                    className={`text-xs flex items-center gap-1 transition-colors px-2 py-1 rounded ${
-                      isRouteSaved 
-                        ? 'text-green-400 bg-green-500/10 cursor-default' 
-                        : 'text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20'
-                    }`}
-                  >
-                    {isRouteSaved ? (
-                      <><Bookmark size={14} className="fill-current" /> Saved</>
-                    ) : (
-                      <><Save size={14} /> Save Route</>
-                    )}
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={handleShareRoute}
+                      className="text-xs flex items-center gap-1 transition-colors px-2 py-1 rounded text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20"
+                    >
+                      <Share2 size={14} /> {shareCopied ? 'Copied!' : 'Share'}
+                    </button>
+                    <button 
+                      onClick={handleSaveRoute}
+                      disabled={isRouteSaved}
+                      className={`text-xs flex items-center gap-1 transition-colors px-2 py-1 rounded ${
+                        isRouteSaved 
+                          ? 'text-green-400 bg-green-500/10 cursor-default' 
+                          : 'text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20'
+                      }`}
+                    >
+                      {isRouteSaved ? (
+                        <><Bookmark size={14} className="fill-current" /> Saved</>
+                      ) : (
+                        <><Save size={14} /> Save</>
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm text-zinc-400 flex items-center gap-2"><Clock size={16} /> Estimated Time</span>
@@ -746,28 +1011,31 @@ export default function SafeRoute() {
               </div>
 
               {/* Safety Score */}
-              <div className={`rounded-xl p-5 border relative overflow-hidden ${
+              <div className={`rounded-xl p-5 border relative overflow-hidden transition-all duration-500 ${
                 safetyStats.isSafe 
-                  ? 'bg-green-500/10 border-green-500/30' 
-                  : 'bg-orange-500/10 border-orange-500/30'
+                  ? 'bg-green-500/10 border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.1)]' 
+                  : 'bg-orange-500/10 border-orange-500/30 shadow-[0_0_20px_rgba(249,115,22,0.2)]'
               }`}>
                 <div className={`absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl -mr-16 -mt-16 opacity-50 ${
-                  safetyStats.isSafe ? 'bg-green-500' : 'bg-orange-500'
+                  safetyStats.isSafe ? 'bg-green-500' : 'bg-orange-500 animate-pulse'
                 }`}></div>
                 
                 <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-4 relative z-10">Route Safety Analysis</h3>
                 
                 <div className="flex items-center gap-4 mb-4 relative z-10">
-                  <div className={`w-16 h-16 rounded-full flex items-center justify-center border-4 ${
+                  <div className={`w-16 h-16 rounded-full flex items-center justify-center border-4 relative ${
                     safetyStats.isSafe ? 'border-green-500 text-green-500' : 'border-orange-500 text-orange-500'
                   }`}>
+                    {!safetyStats.isSafe && (
+                      <div className="absolute inset-0 rounded-full border-4 border-orange-500 animate-ping opacity-20"></div>
+                    )}
                     <span className="text-xl font-bold">{safetyStats.score}%</span>
                   </div>
                   <div>
                     <h4 className={`text-xl font-bold flex items-center gap-2 ${
                       safetyStats.isSafe ? 'text-green-400' : 'text-orange-400'
                     }`}>
-                      {safetyStats.isSafe ? <ShieldCheck size={24} /> : <AlertTriangle size={24} />}
+                      {safetyStats.isSafe ? <ShieldCheck size={24} /> : <AlertTriangle size={24} className="animate-pulse" />}
                       {safetyStats.isSafe ? 'Generally Safe' : 'Exercise Caution'}
                     </h4>
                     <p className="text-sm text-zinc-400 mt-1">Based on recent crime data & route</p>
@@ -949,15 +1217,16 @@ export default function SafeRoute() {
         >
           <MapController center={mapCenter} zoom={mapZoom} bounds={mapBounds} />
           <TileLayer
-            url={showTraffic 
-              ? "https://mt1.google.com/vt/lyrs=m,traffic&x={x}&y={y}&z={z}"
-              : "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            }
-            attribution={showTraffic 
-              ? '&copy; Google Maps'
-              : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            }
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
           />
+          {showTraffic && (
+            <TileLayer
+              url="https://mt1.google.com/vt/lyrs=h,traffic&x={x}&y={y}&z={z}"
+              attribution='&copy; Google Maps'
+              opacity={0.8}
+            />
+          )}
 
           {/* Origin Marker */}
           {origin && (
@@ -1010,8 +1279,8 @@ export default function SafeRoute() {
             );
           })}
 
-          {/* Route Polyline - Colored by Safety */}
-          {route && getColoredRouteSegments().map((segment, index) => (
+          {/* Route Polyline - Colored by Safety or Historical Traffic */}
+          {route && (showHistoricalTraffic ? getHistoricalTrafficSegments() : getColoredRouteSegments()).map((segment: any, index) => (
             <React.Fragment key={`route-segment-group-${index}`}>
               {/* Outer glow/border for better visibility */}
               <Polyline 
@@ -1019,6 +1288,7 @@ export default function SafeRoute() {
                 color={segment.color} 
                 weight={10} 
                 opacity={0.3} 
+                className={segment.className}
               />
               {/* Core line */}
               <Polyline 
@@ -1026,6 +1296,7 @@ export default function SafeRoute() {
                 color={segment.color} 
                 weight={5} 
                 opacity={1} 
+                className={segment.className}
               />
             </React.Fragment>
           ))}
@@ -1058,40 +1329,78 @@ export default function SafeRoute() {
           ))}
         </MapContainer>
 
-        {/* Overlay UI Controls */}
+        {/* Overlay UI Controls - Top Right */}
+        <div className="absolute right-6 top-6 flex flex-col gap-2 z-[1000]">
+          {/* Historical Traffic Panel */}
+          <div className="bg-zinc-900/90 backdrop-blur-md border border-zinc-800/80 rounded-xl p-3 shadow-lg w-64">
+            <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <Clock size={14} /> Historical Traffic
+            </h4>
+            <div className="space-y-2">
+              <input 
+                type="date" 
+                value={historicalDate}
+                onChange={(e) => setHistoricalDate(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <input 
+                type="time" 
+                value={historicalTime}
+                onChange={(e) => setHistoricalTime(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+              <button
+                onClick={() => {
+                  const nextState = !showHistoricalTraffic;
+                  setShowHistoricalTraffic(nextState);
+                  if (nextState) setShowTraffic(false);
+                }}
+                disabled={!historicalDate || !historicalTime}
+                className={`w-full py-1.5 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-2 ${
+                  !historicalDate || !historicalTime
+                    ? 'bg-zinc-800/50 text-zinc-600 cursor-not-allowed'
+                    : showHistoricalTraffic
+                      ? 'bg-blue-600/90 text-white border border-blue-500 shadow-blue-900/20'
+                      : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+                }`}
+              >
+                <Activity size={14} />
+                {showHistoricalTraffic ? 'Historical: On' : 'Historical: Off'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Overlay UI Controls - Bottom Right */}
         <div className="absolute right-6 bottom-6 flex flex-col gap-2 z-[1000]">
-          {/* Route Safety Legend */}
+          {/* Route Safety / Historical Traffic Legend */}
           {route && (
             <div className="bg-zinc-900/90 backdrop-blur-sm border border-zinc-800/50 rounded-xl p-3 shadow-lg mb-2 mr-2">
-              <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Route Safety</h4>
+              <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
+                {showHistoricalTraffic ? 'Historical Traffic' : 'Route Safety'}
+              </h4>
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
-                  <span className="text-xs text-zinc-300">Safe Zone</span>
+                  <div className={`w-3 h-3 rounded-full ${showHistoricalTraffic ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]'}`}></div>
+                  <span className="text-xs text-zinc-300">{showHistoricalTraffic ? 'Clear' : 'Safe Zone'}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]"></div>
-                  <span className="text-xs text-zinc-300">Moderate Risk</span>
+                  <div className={`w-3 h-3 rounded-full ${showHistoricalTraffic ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]' : 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]'}`}></div>
+                  <span className="text-xs text-zinc-300">{showHistoricalTraffic ? 'Light Traffic' : 'Moderate Risk'}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]"></div>
-                  <span className="text-xs text-zinc-300">High Risk Area</span>
+                  <div className={`w-3 h-3 rounded-full ${showHistoricalTraffic ? 'bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.6)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'}`}></div>
+                  <span className="text-xs text-zinc-300">{showHistoricalTraffic ? 'Moderate Traffic' : 'High Risk Area'}</span>
                 </div>
+                {showHistoricalTraffic && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]"></div>
+                    <span className="text-xs text-zinc-300">Heavy Traffic</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
-
-          <button 
-            onClick={() => setShowTraffic(!showTraffic)}
-            className={`p-3 rounded-xl shadow-lg border backdrop-blur-sm transition-all group ${
-              showTraffic 
-                ? 'bg-blue-500 text-white border-blue-400' 
-                : 'bg-zinc-900/90 text-white border-zinc-800/50 hover:bg-zinc-800'
-            }`}
-            title="Toggle Traffic Layer"
-          >
-            <Layers size={20} />
-          </button>
           
           <button 
             onClick={() => {
