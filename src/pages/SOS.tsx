@@ -14,23 +14,19 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const customUserIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 32],
-});
+const createEmojiIcon = (emoji: string, size: number = 32) => {
+  return L.divIcon({
+    className: 'custom-emoji-icon',
+    html: `<div style="font-size: ${size}px; line-height: 1; text-align: center; display: flex; align-items: center; justify-content: center; width: ${size}px; height: ${size}px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));">${emoji}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2]
+  });
+};
 
-const customHospitalIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
-
-const customClinicIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>'),
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-});
+const customUserIcon = createEmojiIcon('📍', 32);
+const customHospitalIcon = createEmojiIcon('🏥', 32);
+const customClinicIcon = createEmojiIcon('👨‍⚕️', 24);
 
 const center: [number, number] = [28.6139, 77.2090]; // New Delhi
 
@@ -115,11 +111,27 @@ export default function SOS() {
         out body;
       `;
       try {
-        const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-        const data = await res.json();
+        const res = await fetch(`https://overpass-api.de/api/interpreter`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: `data=${encodeURIComponent(query)}`
+        });
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
+        const text = await res.text();
+        if (text.trim().startsWith('<')) {
+          throw new Error('Received XML/HTML instead of JSON');
+        }
+        
+        const data = JSON.parse(text);
         setFacilities(data.elements || []);
       } catch (e) {
-        console.error("Failed to fetch facilities", e);
+        console.warn("Failed to fetch facilities.", e);
       }
     };
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, Tooltip } from 'react-leaflet';
-import { MapPin, Navigation, ShieldAlert, AlertTriangle, ShieldCheck, Clock, Layers, Crosshair, Plus, Minus, ChevronLeft, Home, Search, Activity, Sparkles, Save, Bookmark, Trash2, X, List, Share2 } from 'lucide-react';
+import { MapPin, Navigation, ShieldAlert, AlertTriangle, ShieldCheck, Clock, Layers, Crosshair, Plus, Minus, ChevronLeft, Home, Search, Activity, Sparkles, Save, Bookmark, Trash2, X, List, Share2, User } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { useLoadScript } from '@react-google-maps/api';
@@ -17,53 +17,25 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const customAmbulanceIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1 .4-1 1v10H2v-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
+const createEmojiIcon = (emoji: string, size: number = 32) => {
+  return L.divIcon({
+    className: 'custom-emoji-icon',
+    html: `<div style="font-size: ${size}px; line-height: 1; text-align: center; display: flex; align-items: center; justify-content: center; width: ${size}px; height: ${size}px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));">${emoji}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2]
+  });
+};
 
-const customFireIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
-
-const customPoliceIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
-
-const customHospitalIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
-
-const customPharmacyIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 20.5 19 12a4.949 4.949 0 0 0 0-7 4.949 4.949 0 0 0-7 0l-8.5 8.5a4.949 4.949 0 0 0 0 7 4.949 4.949 0 0 0 7 0Z"/><path d="m16.5 3.5 4 4"/><path d="m7.5 16.5 4 4"/></svg>'),
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-});
-
-const customOriginIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
-
-const customDestIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 32],
-});
-
-const customHazardIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
+const customAmbulanceIcon = createEmojiIcon('🚑', 32);
+const customFireIcon = createEmojiIcon('🚒', 32);
+const customPoliceIcon = createEmojiIcon('🚓', 32);
+const customHospitalIcon = createEmojiIcon('🏥', 32);
+const customPharmacyIcon = createEmojiIcon('💊', 24);
+const customClinicIcon = createEmojiIcon('👨‍⚕️', 24);
+const customOriginIcon = createEmojiIcon('📍', 32);
+const customDestIcon = createEmojiIcon('🏁', 32);
+const customHazardIcon = createEmojiIcon('⚠️', 32);
 
 // Map Controller Component
 function MapController({ center, zoom, bounds }: { center: [number, number], zoom: number, bounds?: L.LatLngBoundsExpression }) {
@@ -151,6 +123,31 @@ export default function SafeRoute() {
   const [fleet, setFleet] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<Record<string, any>>({});
   const [savedRoutes, setSavedRoutes] = useState<any[]>([]);
+  
+  // Filters for facilities
+  const [showPolice, setShowPolice] = useState(true);
+  const [showHospitals, setShowHospitals] = useState(true);
+  const [showPharmacies, setShowPharmacies] = useState(true);
+  const [showClinics, setShowClinics] = useState(true);
+
+  // Live location
+  const [liveLocation, setLiveLocation] = useState<[number, number] | null>(null);
+
+  // Live location tracking
+  useEffect(() => {
+    if ('geolocation' in navigator) {
+      const watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          setLiveLocation([position.coords.latitude, position.coords.longitude]);
+        },
+        (error) => {
+          console.warn("Error getting location", error);
+        },
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+      );
+      return () => navigator.geolocation.clearWatch(watchId);
+    }
+  }, []);
 
   // Load saved routes on mount
   useEffect(() => {
@@ -452,16 +449,34 @@ export default function SafeRoute() {
         node["amenity"="police"](${minLat},${minLng},${maxLat},${maxLng});
         node["amenity"="hospital"](${minLat},${minLng},${maxLat},${maxLng});
         node["amenity"="pharmacy"](${minLat},${minLng},${maxLat},${maxLng});
+        node["amenity"="clinic"](${minLat},${minLng},${maxLat},${maxLng});
+        node["amenity"="doctors"](${minLat},${minLng},${maxLat},${maxLng});
       );
       out body;
     `;
     
     try {
-      const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-      const data = await res.json();
+      const res = await fetch(`https://overpass-api.de/api/interpreter`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: `data=${encodeURIComponent(query)}`
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      
+      const text = await res.text();
+      if (text.trim().startsWith('<')) {
+        throw new Error('Received XML/HTML instead of JSON');
+      }
+      
+      const data = JSON.parse(text);
       setFacilities(data.elements || []);
     } catch (e) {
-      console.error("Failed to fetch facilities", e);
+      console.warn("Failed to fetch facilities along route.", e);
     }
   };
 
@@ -711,9 +726,14 @@ export default function SafeRoute() {
             <button onClick={() => navigate(-1)} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Go Back">
               <ChevronLeft size={16} />
             </button>
-            <button onClick={() => navigate('/')} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors ml-auto" title="Go Home">
-              <Home size={16} />
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={() => navigate('/profile')} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Profile">
+                <User size={16} />
+              </button>
+              <button onClick={() => navigate('/')} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Go Home">
+                <Home size={16} />
+              </button>
+            </div>
           </div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <MapPin className="text-blue-500" />
@@ -742,10 +762,8 @@ export default function SafeRoute() {
                         const { latitude, longitude } = position.coords;
                         setMapCenter([latitude, longitude]);
                         setMapZoom(15);
-                        if (!originQuery || !origin) {
-                          setOrigin({ lat: latitude, lng: longitude, name: 'Current Location' });
-                          setOriginQuery('Current Location');
-                        }
+                        setOrigin({ lat: latitude, lng: longitude, name: 'Current Location' });
+                        setOriginQuery('Current Location');
                       },
                       (error) => {
                         console.error("Error getting location: ", error);
@@ -1088,22 +1106,39 @@ export default function SafeRoute() {
 
               {/* Emergency Services Found */}
               <div className="bg-zinc-950 rounded-xl p-4 border border-zinc-800">
-                <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Services Along Route</h3>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-zinc-900 rounded-lg p-2 border border-zinc-800">
+                <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Services Along Route (Click to Filter)</h3>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div 
+                    onClick={() => setShowPolice(!showPolice)}
+                    className={`rounded-lg p-2 border cursor-pointer transition-colors ${showPolice ? 'bg-zinc-900 border-blue-500/50' : 'bg-zinc-900/50 border-zinc-800 opacity-50'}`}
+                  >
                     <div className="text-blue-500 flex justify-center mb-1"><ShieldAlert size={18} /></div>
                     <div className="text-lg font-bold">{facilities.filter(f => f.tags?.amenity === 'police').length}</div>
                     <div className="text-[10px] text-zinc-500 uppercase">Police</div>
                   </div>
-                  <div className="bg-zinc-900 rounded-lg p-2 border border-zinc-800">
+                  <div 
+                    onClick={() => setShowHospitals(!showHospitals)}
+                    className={`rounded-lg p-2 border cursor-pointer transition-colors ${showHospitals ? 'bg-zinc-900 border-green-500/50' : 'bg-zinc-900/50 border-zinc-800 opacity-50'}`}
+                  >
                     <div className="text-green-500 flex justify-center mb-1"><Activity size={18} /></div>
                     <div className="text-lg font-bold">{facilities.filter(f => f.tags?.amenity === 'hospital').length}</div>
                     <div className="text-[10px] text-zinc-500 uppercase">Hospitals</div>
                   </div>
-                  <div className="bg-zinc-900 rounded-lg p-2 border border-zinc-800">
+                  <div 
+                    onClick={() => setShowPharmacies(!showPharmacies)}
+                    className={`rounded-lg p-2 border cursor-pointer transition-colors ${showPharmacies ? 'bg-zinc-900 border-emerald-500/50' : 'bg-zinc-900/50 border-zinc-800 opacity-50'}`}
+                  >
                     <div className="text-emerald-500 flex justify-center mb-1"><Plus size={18} /></div>
                     <div className="text-lg font-bold">{facilities.filter(f => f.tags?.amenity === 'pharmacy').length}</div>
                     <div className="text-[10px] text-zinc-500 uppercase">Pharmacies</div>
+                  </div>
+                  <div 
+                    onClick={() => setShowClinics(!showClinics)}
+                    className={`rounded-lg p-2 border cursor-pointer transition-colors ${showClinics ? 'bg-zinc-900 border-cyan-500/50' : 'bg-zinc-900/50 border-zinc-800 opacity-50'}`}
+                  >
+                    <div className="text-cyan-500 flex justify-center mb-1"><Activity size={18} /></div>
+                    <div className="text-lg font-bold">{facilities.filter(f => f.tags?.amenity === 'clinic' || f.tags?.amenity === 'doctors').length}</div>
+                    <div className="text-[10px] text-zinc-500 uppercase">Clinics</div>
                   </div>
                 </div>
               </div>
@@ -1256,15 +1291,28 @@ export default function SafeRoute() {
                 mouseover: () => setHoveredHotspot(hotspot),
                 mouseout: () => setHoveredHotspot(null),
               }}
-            />
+            >
+              <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+                <div className="font-bold text-red-500">{hotspot.type}</div>
+                <div className="text-xs font-semibold">{hotspot.severity} Risk</div>
+                <div className="text-[10px] mt-1 text-zinc-600">Proceed with caution</div>
+              </Tooltip>
+            </Marker>
           ))}
 
           {/* Fetched Facilities Along Route */}
-          {facilities.map((fac) => {
+          {facilities.filter(fac => {
+            if (fac.tags?.amenity === 'police') return showPolice;
+            if (fac.tags?.amenity === 'hospital') return showHospitals;
+            if (fac.tags?.amenity === 'pharmacy') return showPharmacies;
+            if (fac.tags?.amenity === 'clinic' || fac.tags?.amenity === 'doctors') return showClinics;
+            return true;
+          }).map((fac) => {
             let icon = customHospitalIcon;
             let typeName = "Hospital";
             if (fac.tags?.amenity === 'pharmacy') { icon = customPharmacyIcon; typeName = "Pharmacy"; }
             else if (fac.tags?.amenity === 'police') { icon = customPoliceIcon; typeName = "Police Station"; }
+            else if (fac.tags?.amenity === 'clinic' || fac.tags?.amenity === 'doctors') { icon = customClinicIcon; typeName = "Clinic/Doctor"; }
 
             return (
               <Marker key={`fac-${fac.id}`} position={[fac.lat, fac.lon]} icon={icon}>
@@ -1278,6 +1326,15 @@ export default function SafeRoute() {
               </Marker>
             );
           })}
+
+          {/* Live Location Marker */}
+          {liveLocation && (
+            <Marker position={liveLocation} icon={customOriginIcon}>
+              <Popup>
+                <div className="text-zinc-900 font-medium">Your Live Location</div>
+              </Popup>
+            </Marker>
+          )}
 
           {/* Route Polyline - Colored by Safety or Historical Traffic */}
           {route && (showHistoricalTraffic ? getHistoricalTrafficSegments() : getColoredRouteSegments()).map((segment: any, index) => (

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ContainerScroll } from '@/components/ui/container-scroll-animation';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, Activity, Navigation, Clock, MapPin, Zap, ChevronRight } from 'lucide-react';
+import { ShieldAlert, Activity, Navigation, Clock, MapPin, Zap, ChevronRight, ShieldCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function LandingPage() {
@@ -100,8 +100,8 @@ export default function LandingPage() {
           }
         >
           <img
-            src="https://images.unsplash.com/photo-1584036561566-baf8f5f1b144?q=80&w=3840&auto=format&fit=crop"
-            alt="Emergency Dashboard"
+            src="https://images.unsplash.com/photo-1587559070757-f72a388edbba?q=80&w=3840&auto=format&fit=crop"
+            alt="Emergency Response Ambulance"
             className="mx-auto rounded-2xl object-cover h-full object-center w-full"
             draggable={false}
           />
@@ -165,6 +165,51 @@ export default function LandingPage() {
               <h3 className="text-xl font-semibold mb-3 relative z-10">Public SOS Integration</h3>
               <p className="text-zinc-400 text-sm leading-relaxed relative z-10">
                 Direct connection between public emergency requests and the nearest available response units, minimizing dispatch delays.
+              </p>
+            </motion.div>
+
+            {/* Feature 4 */}
+            <motion.div 
+              whileHover={{ y: -10 }}
+              className="bg-black border border-white/10 rounded-2xl p-8 hover:border-purple-500/50 transition-colors group relative overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full blur-3xl -mr-16 -mt-16 transition-all group-hover:bg-purple-500/20"></div>
+              <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center text-purple-500 mb-6 group-hover:scale-110 transition-transform relative z-10">
+                <Activity size={24} />
+              </div>
+              <h3 className="text-xl font-semibold mb-3 relative z-10">Facility Finder</h3>
+              <p className="text-zinc-400 text-sm leading-relaxed relative z-10">
+                Automatically identifies and filters hospitals, clinics, pharmacies, and police stations along your safe route.
+              </p>
+            </motion.div>
+
+            {/* Feature 5 */}
+            <motion.div 
+              whileHover={{ y: -10 }}
+              className="bg-black border border-white/10 rounded-2xl p-8 hover:border-cyan-500/50 transition-colors group relative overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 rounded-full blur-3xl -mr-16 -mt-16 transition-all group-hover:bg-cyan-500/20"></div>
+              <div className="w-12 h-12 bg-cyan-500/10 rounded-xl flex items-center justify-center text-cyan-500 mb-6 group-hover:scale-110 transition-transform relative z-10">
+                <Navigation size={24} />
+              </div>
+              <h3 className="text-xl font-semibold mb-3 relative z-10">Live Location Tracking</h3>
+              <p className="text-zinc-400 text-sm leading-relaxed relative z-10">
+                Tracks your live GPS location and monitors emergency fleet vehicles in real-time for ultimate situational awareness.
+              </p>
+            </motion.div>
+
+            {/* Feature 6 */}
+            <motion.div 
+              whileHover={{ y: -10 }}
+              className="bg-black border border-white/10 rounded-2xl p-8 hover:border-yellow-500/50 transition-colors group relative overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/5 rounded-full blur-3xl -mr-16 -mt-16 transition-all group-hover:bg-yellow-500/20"></div>
+              <div className="w-12 h-12 bg-yellow-500/10 rounded-xl flex items-center justify-center text-yellow-500 mb-6 group-hover:scale-110 transition-transform relative z-10">
+                <ShieldCheck size={24} />
+              </div>
+              <h3 className="text-xl font-semibold mb-3 relative z-10">User Profiles & Settings</h3>
+              <p className="text-zinc-400 text-sm leading-relaxed relative z-10">
+                Save your preferred routes, manage emergency contacts, and customize your map settings for a personalized experience.
               </p>
             </motion.div>
           </div>

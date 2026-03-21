@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
-import { AlertTriangle, Navigation, Activity, ShieldAlert, MapPin, Search, Layers, X, Clock, Settings2, Plus, Minus, Crosshair, ChevronLeft, ChevronRight, Home, Sparkles } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, CircleMarker } from 'react-leaflet';
+import { AlertTriangle, Navigation, Activity, ShieldAlert, MapPin, Search, Layers, X, Clock, Settings2, Plus, Minus, Crosshair, ChevronLeft, ChevronRight, Home, Sparkles, User } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, CircleMarker, useMapEvents } from 'react-leaflet';
 import { useNavigate } from 'react-router-dom';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -44,61 +44,31 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const getVehicleIcon = (type: string) => {
-  let color = '#ef4444'; // red for ambulance
-  // Ambulance SVG (Truck with a cross)
-  let iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1 .4-1 1v10H2v-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/><path d="M14 8h-4v4h4V8z"/></svg>';
-
-  if (type === 'fire') {
-    color = '#f97316'; // orange
-    // Fire Truck SVG (Truck with a ladder)
-    iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 17h4V5H2v12h3"/><path d="M20 17h2v-3.34a4 4 0 0 0-1.17-2.83L19 9h-5"/><path d="M14 17h1"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/><path d="M2 9h8"/><path d="M2 13h8"/></svg>';
-  } else if (type === 'police') {
-    color = '#3b82f6'; // blue
-    // Police Car SVG (Car with a siren)
-    iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1 .4-1 1v10H2v-2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/><path d="M10 6h4v3h-4z"/></svg>';
-  }
-
+const createEmojiIcon = (emoji: string, size: number = 32) => {
   return L.divIcon({
-    className: 'custom-vehicle-icon',
-    html: `<div style="background-color: ${color}; color: white; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 50%; box-shadow: 0 4px 6px rgba(0,0,0,0.3); border: 2px solid white;">
-      ${iconSvg}
-    </div>`,
-    iconSize: [36, 36],
-    iconAnchor: [18, 18],
-    popupAnchor: [0, -18]
+    className: 'custom-emoji-icon',
+    html: `<div style="font-size: ${size}px; line-height: 1; text-align: center; display: flex; align-items: center; justify-content: center; width: ${size}px; height: ${size}px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));">${emoji}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2]
   });
 };
 
-const customHospitalIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
+const getVehicleIcon = (type: string) => {
+  let emoji = '🚑'; // ambulance
+  if (type === 'fire') emoji = '🚒';
+  else if (type === 'police') emoji = '🚓';
+  else emoji = '🚗'; // user vehicle or other
 
-const customPharmacyIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 20.5 19 12a4.949 4.949 0 0 0 0-7 4.949 4.949 0 0 0-7 0l-8.5 8.5a4.949 4.949 0 0 0 0 7 4.949 4.949 0 0 0 7 0Z"/><path d="m16.5 3.5 4 4"/><path d="m7.5 16.5 4 4"/></svg>'),
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-});
+  return createEmojiIcon(emoji, 36);
+};
 
-const customClinicIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></svg>'),
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-});
-
-const customVetIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3c0 1.6 1.4 3 3 3s3-1.4 3-3a3 3 0 0 0-3-3Z"/><path d="M19 8a2 2 0 0 0-2 2c0 1.1.9 2 2 2s2-.9 2-2a2 2 0 0 0-2-2Z"/><path d="M5 8a2 2 0 0 0-2 2c0 1.1.9 2 2 2s2-.9 2-2a2 2 0 0 0-2-2Z"/><path d="M12 10c-3.3 0-6 2.7-6 6v4h12v-4c0-3.3-2.7-6-6-6Z"/></svg>'),
-  iconSize: [24, 24],
-  iconAnchor: [12, 12],
-});
-
-const customAccidentIcon = new L.Icon({
-  iconUrl: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'),
-  iconSize: [32, 32],
-  iconAnchor: [16, 16],
-});
+const customHospitalIcon = createEmojiIcon('🏥', 32);
+const customPharmacyIcon = createEmojiIcon('💊', 24);
+const customClinicIcon = createEmojiIcon('👨‍⚕️', 24);
+const customVetIcon = createEmojiIcon('🐕‍🦺', 24);
+const customPoliceIcon = createEmojiIcon('🚓', 32);
+const customAccidentIcon = createEmojiIcon('💥', 32);
 
 const center: [number, number] = [28.6139, 77.2090]; // New Delhi
 
@@ -122,6 +92,17 @@ function MapController({ center, zoom, bounds }: { center: [number, number], zoo
   return null;
 }
 
+function MapEvents({ reportingIncident, setNewIncidentLocation }: { reportingIncident: boolean, setNewIncidentLocation: (loc: [number, number]) => void }) {
+  useMapEvents({
+    click(e) {
+      if (reportingIncident) {
+        setNewIncidentLocation([e.latlng.lat, e.latlng.lng]);
+      }
+    },
+  });
+  return null;
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [emergencyMode, setEmergencyMode] = useState(false);
@@ -129,9 +110,12 @@ export default function Dashboard() {
   const [vehicles, setVehicles] = useState<Record<string, any>>({});
   const [dynamicETA, setDynamicETA] = useState<string | null>(null);
   const [routeCalculated, setRouteCalculated] = useState(false);
-  const [accidents, setAccidents] = useState<[number, number][]>([
-    [28.62, 77.21] // Mock accident
+  const [accidents, setAccidents] = useState<any[]>([
+    { lat: 28.62, lng: 77.21, desc: 'Accident Reported', time: '2 mins ago' }
   ]);
+  const [reportingIncident, setReportingIncident] = useState(false);
+  const [newIncidentLocation, setNewIncidentLocation] = useState<[number, number] | null>(null);
+  const [newIncidentDesc, setNewIncidentDesc] = useState('');
   const [facilities, setFacilities] = useState<any[]>([]);
   const [trafficSegments, setTrafficSegments] = useState<any[]>([]);
   const [isLoadingTraffic, setIsLoadingTraffic] = useState(false);
@@ -142,6 +126,12 @@ export default function Dashboard() {
     moderate: true,
     heavy: true,
     severe: true
+  });
+  const [facilityFilters, setFacilityFilters] = useState({
+    hospitals: true,
+    clinics: true,
+    pharmacies: true,
+    police: true
   });
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [vehiclePaths, setVehiclePaths] = useState<Record<string, {lat: number, lng: number, timestamp: number}[]>>({});
@@ -191,6 +181,38 @@ export default function Dashboard() {
       }
     }
   }, [fleet, activeDispatch]);
+
+  // Dynamic ETA calculation for active dispatch
+  useEffect(() => {
+    if (activeDispatch) {
+      const vehicle = fleet.find(v => v.id === activeDispatch.vehicleId);
+      if (vehicle) {
+        // Calculate distance in km using Haversine formula
+        const R = 6371;
+        const dLat = (activeDispatch.destination[0] - vehicle.lat) * (Math.PI/180);
+        const dLon = (activeDispatch.destination[1] - vehicle.lng) * (Math.PI/180); 
+        const a = 
+          Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(vehicle.lat * (Math.PI/180)) * Math.cos(activeDispatch.destination[0] * (Math.PI/180)) * 
+          Math.sin(dLon/2) * Math.sin(dLon/2); 
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+        const distance = R * c;
+        
+        // Use vehicle speed or default to 40 km/h
+        const speed = vehicle.speed > 0 ? vehicle.speed : 40;
+        
+        let timeHours = distance / speed;
+        
+        // Traffic multiplier
+        if (showTraffic) {
+          timeHours *= 1.2;
+        }
+        
+        const timeMins = Math.max(1, Math.ceil(timeHours * 60));
+        setDynamicETA(`${timeMins} mins`);
+      }
+    }
+  }, [fleet, activeDispatch, showTraffic]);
 
   // Mock route from center to AIIMS
   const mockRoute: [number, number][] = [
@@ -313,15 +335,32 @@ export default function Dashboard() {
           node["amenity"="clinic"](around:3000,${center[0]},${center[1]});
           node["amenity"="doctors"](around:3000,${center[0]},${center[1]});
           node["amenity"="veterinary"](around:3000,${center[0]},${center[1]});
+          node["amenity"="police"](around:3000,${center[0]},${center[1]});
         );
         out body;
       `;
       try {
-        const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-        const data = await res.json();
+        const res = await fetch(`https://overpass-api.de/api/interpreter`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: `data=${encodeURIComponent(query)}`
+        });
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
+        const text = await res.text();
+        if (text.trim().startsWith('<')) {
+          throw new Error('Received XML/HTML instead of JSON');
+        }
+        
+        const data = JSON.parse(text);
         setFacilities(data.elements || []);
       } catch (e) {
-        console.error("Failed to fetch facilities", e);
+        console.warn("Failed to fetch facilities, using static fallbacks.", e);
       }
     };
 
@@ -546,9 +585,14 @@ export default function Dashboard() {
             <button onClick={() => navigate(-1)} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Go Back">
               <ChevronLeft size={16} />
             </button>
-            <button onClick={() => navigate('/')} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors ml-auto" title="Go Home">
-              <Home size={16} />
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={() => navigate('/profile')} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Profile">
+                <User size={16} />
+              </button>
+              <button onClick={() => navigate('/')} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Go Home">
+                <Home size={16} />
+              </button>
+            </div>
           </div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <ShieldAlert className="text-red-500" />
@@ -638,6 +682,50 @@ export default function Dashboard() {
                       </div>
                     </div>
                   )}
+                </div>
+
+                <div className="bg-zinc-950 rounded-lg p-3 border border-zinc-800">
+                  <div className="text-sm text-zinc-400 flex items-center gap-2 mb-3">
+                    <Layers size={14} /> Facility Filters
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={facilityFilters.hospitals} 
+                        onChange={(e) => setFacilityFilters({...facilityFilters, hospitals: e.target.checked})}
+                        className="rounded border-zinc-700 bg-zinc-800 text-blue-500 focus:ring-blue-500"
+                      />
+                      Hospitals
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={facilityFilters.clinics} 
+                        onChange={(e) => setFacilityFilters({...facilityFilters, clinics: e.target.checked})}
+                        className="rounded border-zinc-700 bg-zinc-800 text-blue-500 focus:ring-blue-500"
+                      />
+                      Clinics
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={facilityFilters.pharmacies} 
+                        onChange={(e) => setFacilityFilters({...facilityFilters, pharmacies: e.target.checked})}
+                        className="rounded border-zinc-700 bg-zinc-800 text-blue-500 focus:ring-blue-500"
+                      />
+                      Pharmacies
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={facilityFilters.police} 
+                        onChange={(e) => setFacilityFilters({...facilityFilters, police: e.target.checked})}
+                        className="rounded border-zinc-700 bg-zinc-800 text-blue-500 focus:ring-blue-500"
+                      />
+                      Police
+                    </label>
+                  </div>
                 </div>
                 
                 <div className="bg-zinc-950 rounded-lg p-3 border border-zinc-800">
@@ -795,9 +883,9 @@ export default function Dashboard() {
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-zinc-400">ETA to Destination</span>
                   <span className="font-mono text-green-400">
-                    {dynamicETA 
+                    {activeDispatch ? dynamicETA : (dynamicETA 
                       ? (emergencyMode ? `${Math.max(1, Math.floor(parseInt(dynamicETA) * (1 - tripProgress/100)))} mins` : dynamicETA) 
-                      : (emergencyMode ? `${Math.max(1, Math.floor(12 * (1 - tripProgress/100)))} mins` : '12 mins')}
+                      : (emergencyMode ? `${Math.max(1, Math.floor(12 * (1 - tripProgress/100)))} mins` : '12 mins'))}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -812,19 +900,28 @@ export default function Dashboard() {
             </div>
             
             <div>
-              <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider mb-3">Reported Incidents</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">Reported Incidents</h3>
+                <button 
+                  onClick={() => setReportingIncident(true)}
+                  className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors"
+                  title="Report New Incident"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
               <div className="space-y-2">
                 {accidents.map((acc, i) => (
                   <div key={i} className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex flex-col gap-2">
                     <div className="flex items-start gap-3">
                       <AlertTriangle className="text-red-500 shrink-0" size={18} />
                       <div>
-                        <p className="text-sm font-medium text-red-200">Accident Reported</p>
-                        <p className="text-xs text-red-400/70">Near Connaught Place • 2 mins ago</p>
+                        <p className="text-sm font-medium text-red-200">{acc.desc}</p>
+                        <p className="text-xs text-red-400/70">{acc.time}</p>
                       </div>
                     </div>
                     <button 
-                      onClick={() => handleDispatchNearest(acc)}
+                      onClick={() => handleDispatchNearest([acc.lat, acc.lng])}
                       className="mt-1 w-full py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs font-medium rounded transition-colors border border-red-500/30"
                     >
                       Dispatch Nearest Unit
@@ -980,15 +1077,63 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Reporting UI Overlay */}
+      {reportingIncident && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] bg-zinc-900 border border-zinc-800 rounded-xl p-4 shadow-2xl w-96">
+          <h3 className="text-white font-medium mb-2">Report New Incident</h3>
+          {!newIncidentLocation ? (
+            <p className="text-sm text-zinc-400 mb-4">Click anywhere on the map to select the location.</p>
+          ) : (
+            <div className="space-y-3">
+              <div className="text-xs text-zinc-500">Location selected: {newIncidentLocation[0].toFixed(4)}, {newIncidentLocation[1].toFixed(4)}</div>
+              <input 
+                type="text" 
+                placeholder="Brief description (e.g., Accident, Road Block)" 
+                value={newIncidentDesc}
+                onChange={e => setNewIncidentDesc(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500"
+              />
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => {
+                    if (newIncidentLocation && newIncidentDesc) {
+                      setAccidents([...accidents, { lat: newIncidentLocation[0], lng: newIncidentLocation[1], desc: newIncidentDesc, time: 'Just now' }]);
+                      setNotification({ message: `Incident reported: ${newIncidentDesc}`, type: 'success' });
+                      setReportingIncident(false);
+                      setNewIncidentLocation(null);
+                      setNewIncidentDesc('');
+                    }
+                  }}
+                  className="flex-1 bg-red-500 hover:bg-red-600 text-white rounded-lg py-2 text-sm font-medium transition-colors"
+                >
+                  Submit Report
+                </button>
+                <button 
+                  onClick={() => {
+                    setReportingIncident(false);
+                    setNewIncidentLocation(null);
+                    setNewIncidentDesc('');
+                  }}
+                  className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg py-2 text-sm font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Main Map Area */}
       <div className="flex-1 relative z-0">
         <MapContainer 
           center={mapCenter} 
           zoom={mapZoom} 
-          style={{ width: '100%', height: '100%' }}
+          style={{ width: '100%', height: '100%', cursor: reportingIncident ? 'crosshair' : 'grab' }}
           zoomControl={false}
         >
           <MapController center={mapCenter} zoom={mapZoom} bounds={mapBounds} />
+          <MapEvents reportingIncident={reportingIncident} setNewIncidentLocation={setNewIncidentLocation} />
           <TileLayer
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -1056,12 +1201,19 @@ export default function Dashboard() {
           </Marker>
 
           {/* Fetched Facilities */}
-          {facilities.map((fac, i) => {
+          {facilities.filter(fac => {
+            if (fac.tags?.amenity === 'hospital') return facilityFilters.hospitals;
+            if (fac.tags?.amenity === 'clinic' || fac.tags?.amenity === 'doctors') return facilityFilters.clinics;
+            if (fac.tags?.amenity === 'pharmacy') return facilityFilters.pharmacies;
+            if (fac.tags?.amenity === 'police') return facilityFilters.police;
+            return true;
+          }).map((fac, i) => {
             let icon = customHospitalIcon;
             let typeName = "Hospital";
             if (fac.tags?.amenity === 'pharmacy') { icon = customPharmacyIcon; typeName = "Pharmacy"; }
             else if (fac.tags?.amenity === 'clinic' || fac.tags?.amenity === 'doctors') { icon = customClinicIcon; typeName = "Clinic/Doctor"; }
             else if (fac.tags?.amenity === 'veterinary') { icon = customVetIcon; typeName = "Veterinary"; }
+            else if (fac.tags?.amenity === 'police') { icon = customPoliceIcon; typeName = "Police Station"; }
 
             return (
               <Marker key={`fac-${fac.id}`} position={[fac.lat, fac.lon]} icon={icon}>
@@ -1074,7 +1226,7 @@ export default function Dashboard() {
           })}
 
           {/* Hospitals (Static Fallbacks) */}
-          {hospitals.map((hospital, i) => (
+          {facilityFilters.hospitals && hospitals.map((hospital, i) => (
             <Marker key={`h-${i}`} position={hospital.pos} icon={customHospitalIcon}>
               <Popup>
                 <div className="text-zinc-900 font-medium">{hospital.name}</div>
@@ -1168,11 +1320,11 @@ export default function Dashboard() {
 
           {/* Accidents */}
           {accidents.map((acc, i) => (
-            <Marker key={`acc-${i}`} position={acc} icon={customAccidentIcon}>
+            <Marker key={`acc-${i}`} position={[acc.lat, acc.lng]} icon={customAccidentIcon}>
               <Popup>
-                <div className="text-red-600 font-medium mb-2">Reported Accident</div>
+                <div className="text-red-600 font-medium mb-2">{acc.desc}</div>
                 <button 
-                  onClick={() => handleDispatchNearest(acc)}
+                  onClick={() => handleDispatchNearest([acc.lat, acc.lng])}
                   className="w-full py-1.5 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition-colors"
                 >
                   Dispatch Nearest Unit
