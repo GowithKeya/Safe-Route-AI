@@ -29,6 +29,45 @@ This application is built to minimize response times, optimize resource allocati
 *   **Icons:** Lucide React
 *   **External APIs:** Overpass API (Facilities), Nominatim (Geocoding/Search)
 
+## 💻 Local Installation Guide
+
+Follow these steps to set up and run the Emergency Response & Safe Routing Platform on your local machine.
+
+### Prerequisites
+*   **Node.js** (v18 or higher recommended)
+*   **npm** or **yarn** package manager
+*   **Git** for cloning the repository
+
+### Step-by-Step Setup
+
+1. **Clone the repository:**
+   ```bash
+   git clone <repository-url>
+   cd <project-directory>
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
+
+3. **Configure Environment Variables:**
+   * Duplicate the `.env.example` file and rename it to `.env`.
+   * Open `.env` and fill in the required API keys (e.g., Gemini API Key, Google Maps API Key).
+   * *Note: The application uses `src/apikeys.ts` to manage these keys centrally.*
+
+4. **Start the Development Server:**
+   ```bash
+   npm run dev
+   # or
+   yarn dev
+   ```
+
+5. **Access the Application:**
+   * Open your browser and navigate to `http://localhost:3000` (or the port specified in your terminal).
+
 ## 🔮 Future Enhancements (Roadmap)
 
 While the current platform provides a robust foundation for emergency management, the following features can be added in future iterations:

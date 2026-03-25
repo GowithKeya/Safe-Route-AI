@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { Server } from 'socket.io';
 import http from 'http';
+import { API_KEYS } from './src/apikeys';
 
 async function startServer() {
   const app = express();
@@ -22,7 +23,7 @@ async function startServer() {
 
   app.get('/api/directions', async (req, res) => {
     const { origin, destination, mode = 'driving' } = req.query;
-    const apiKey = process.env.VITE_GOOGLE_MAPS_API_KEY;
+    const apiKey = API_KEYS.GOOGLE_MAPS_API_KEY;
     
     try {
       if (apiKey && apiKey !== 'YOUR_GOOGLE_MAPS_API_KEY') {
@@ -83,7 +84,7 @@ async function startServer() {
 
   app.get('/api/places/autocomplete', async (req, res) => {
     const { input } = req.query;
-    const apiKey = process.env.VITE_GOOGLE_MAPS_API_KEY;
+    const apiKey = API_KEYS.GOOGLE_MAPS_API_KEY;
     
     if (!apiKey || apiKey === 'YOUR_GOOGLE_MAPS_API_KEY') {
       return res.status(400).json({ error: 'Google Maps API key not configured' });
@@ -102,7 +103,7 @@ async function startServer() {
 
   app.get('/api/places/details', async (req, res) => {
     const { place_id } = req.query;
-    const apiKey = process.env.VITE_GOOGLE_MAPS_API_KEY;
+    const apiKey = API_KEYS.GOOGLE_MAPS_API_KEY;
     
     if (!apiKey || apiKey === 'YOUR_GOOGLE_MAPS_API_KEY') {
       return res.status(400).json({ error: 'Google Maps API key not configured' });

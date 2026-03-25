@@ -8,6 +8,7 @@ import L from 'leaflet';
 import { GoogleGenAI, Type } from "@google/genai";
 import Markdown from 'react-markdown';
 import { findSafestRouteDijkstra } from '../utils/dijkstra';
+import { API_KEYS } from '../apikeys';
 
 // Fix for default marker icons in Leaflet with React
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -362,7 +363,7 @@ export default function SafeRoute() {
     // 2. AI Search with Gemini and Google Maps tool
     if (results.length < 5) {
       try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const ai = new GoogleGenAI({ apiKey: API_KEYS.GEMINI_API_KEY });
         const response = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
           contents: `Find the location and coordinates for: "${query}". Return ONLY a valid JSON array of up to 5 results. Each result must have: "name" (string), "address" (string), "lat" (number), "lng" (number). Do not include any markdown formatting like \`\`\`json, just the raw JSON array.`,
@@ -461,7 +462,7 @@ export default function SafeRoute() {
       const numHotspots = isSafe ? 1 : 3;
       
       try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const ai = new GoogleGenAI({ apiKey: API_KEYS.GEMINI_API_KEY });
         const response = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
           contents: `Generate ${numHotspots} plausible hazard hotspots for a route to ${destName} with a safety score of ${score}/100.
@@ -624,7 +625,7 @@ export default function SafeRoute() {
     setGroundingLinks([]);
     
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey: API_KEYS.GEMINI_API_KEY });
       
       const routeSummaries = routes.map((r, i) => {
         const leg = r.legs[0];
@@ -635,9 +636,8 @@ export default function SafeRoute() {
       Available Routes:
       ${routeSummaries}
       
-      Provide a rating for each available route based on which is easier, safer, and faster.
-      Filter the routes and tell me the current traffic conditions.
-      Suggest the best route overall for safety and speed.`;
+      Provide insights on safety, predicted traffic, and potential hazards for each route.
+      Suggest the optimal route based on this analysis, prioritizing safety and speed.`;
 
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",

@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
+import { API_KEYS } from "./src/apikeys";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const ai = new GoogleGenAI({ apiKey: API_KEYS.GEMINI_API_KEY });
 
 async function test() {
   const query = "GTB Hospital in Delhi";

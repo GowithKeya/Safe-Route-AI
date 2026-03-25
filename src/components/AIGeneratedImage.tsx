@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import { Sparkles, Loader2, Key } from 'lucide-react';
+import { API_KEYS } from '../apikeys';
 
 interface AIGeneratedImageProps {
   prompt: string;
@@ -42,7 +43,7 @@ export default function AIGeneratedImage({ prompt, defaultSrc, alt, className }:
       }
 
       // The selected API key is available using process.env.API_KEY
-      const apiKey = process.env.API_KEY;
+      const apiKey = API_KEYS.PAID_API_KEY;
       if (!apiKey) {
         throw new Error("API key not found after selection.");
       }

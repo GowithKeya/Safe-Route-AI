@@ -3,6 +3,7 @@ import { ContainerScroll } from '@/components/ui/container-scroll-animation';
 import { useNavigate } from 'react-router-dom';
 import { ShieldAlert, Activity, Navigation, Clock, MapPin, Zap, ChevronRight, ShieldCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { FlowHoverButton } from '@/components/ui/flow-hover-button';
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -22,7 +23,7 @@ export default function LandingPage() {
               transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
               className="mb-6 text-white text-center text-6xl md:text-8xl font-black tracking-tight"
             >
-              SafeRoute <span className="text-[#FF2A2A]">AI</span>
+              SafeRoute <span className="text-brand-red">AI</span>
             </motion.h1>
             
             <motion.p 
@@ -38,48 +39,42 @@ export default function LandingPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.6, ease: "easeOut" }}
-              className="flex flex-col sm:flex-row gap-6 justify-center items-center mb-8"
+              className="flex flex-col gap-4 justify-center items-center mb-16 w-full mx-auto"
             >
-              <button 
-                className="bg-[#E5E7EB] hover:bg-white text-black rounded-full px-8 py-4 text-base font-semibold transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)]" 
-                onClick={() => navigate('/login')}
-              >
-                Launch Dashboard
-              </button>
-              <button 
-                className="text-zinc-400 hover:text-white transition-colors px-6 py-4 text-base"
-                onClick={() => navigate('/sos')}
-              >
-                Public SOS Mode
-              </button>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.7, ease: "easeOut" }}
-              className="flex justify-center mb-16"
-            >
-              <button 
-                className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-white rounded-full px-6 py-3 text-sm font-medium transition-all"
+              <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                <FlowHoverButton 
+                  className="w-fit before:bg-brand-red/20 border-brand-red/30 text-brand-red hover:text-white" 
+                  onClick={() => navigate('/login')}
+                >
+                  Launch Dashboard
+                </FlowHoverButton>
+                <FlowHoverButton 
+                  className="w-fit before:bg-white/10"
+                  onClick={() => navigate('/sos')}
+                >
+                  Public SOS Mode
+                </FlowHoverButton>
+              </div>
+              <FlowHoverButton 
+                icon={<MapPin size={18} className="text-current" />}
+                className="w-fit before:bg-brand-red/20 border-brand-red/30 text-brand-red hover:text-white"
                 onClick={() => navigate('/safe-route')}
               >
-                <MapPin size={16} className="text-blue-400" />
                 Find your safe Route
-              </button>
+              </FlowHoverButton>
             </motion.div>
 
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, ease: "easeOut", delay: 0.8 }}
-              className="flex items-center justify-center gap-2 bg-[#0A1A10] px-5 py-2.5 rounded-full border border-[#1A3A20]"
+              className="flex items-center justify-center gap-2 bg-brand-dark px-5 py-2.5 rounded-full border border-brand-border"
             >
               <span className="relative flex h-2.5 w-2.5 items-center justify-center">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00FF66] opacity-75"></span>
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#00FF66]"></span>
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-green opacity-75"></span>
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-brand-green"></span>
               </span>
-              <p className="text-sm text-[#00FF66] font-medium tracking-wide">System Online & Monitoring</p>
+              <p className="text-sm text-brand-green font-medium tracking-wide">System Online & Monitoring</p>
             </motion.div>
           </main>
         </div>
@@ -92,7 +87,7 @@ export default function LandingPage() {
             <>
               <h2 className="text-4xl md:text-5xl font-semibold text-white mb-4 tracking-tight">
                 Real-time Intelligence for <br />
-                <span className="text-5xl md:text-[6rem] font-bold mt-2 leading-none text-[#FF2A2A]">
+                <span className="text-5xl md:text-[6rem] font-bold mt-2 leading-none text-brand-red">
                   Critical Moments
                 </span>
               </h2>
@@ -263,8 +258,8 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex items-center gap-2">
-              <ShieldAlert className="text-[#FF2A2A]" size={24} />
-              <span className="text-xl font-bold tracking-tight">SafeRoute <span className="text-[#FF2A2A]">AI</span></span>
+              <ShieldAlert className="text-brand-red" size={24} />
+              <span className="text-xl font-bold tracking-tight">SafeRoute <span className="text-brand-red">AI</span></span>
             </div>
             
             <div className="flex gap-8 text-sm text-zinc-400">
