@@ -21,40 +21,101 @@ async function startServer() {
   });
 
   app.get('/api/directions', async (req, res) => {
-    const { origin, destination, avoid, preference } = req.query;
-    const apiKey = process.env.VITE_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
-    
-    if (!apiKey) {
-      return res.status(400).json({ error: 'Google Maps API key is missing' });
-    }
+    const { origin, destination, mode = 'driving' } = req.query;
+    const apiKey = process.env.VITE_GOOGLE_MAPS_API_KEY;
     
     try {
-      let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&departure_time=now&key=${apiKey}`;
-      
-      if (avoid) {
-        url += `&avoid=${avoid}`;
+      if (apiKey && apiKey !== 'YOUR_GOOGLE_MAPS_API_KEY') {
+        // Use Google Maps Directions API
+        const googleUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&mode=${mode}&alternatives=true&key=${apiKey}`;
+        const response = await fetch(googleUrl);
+        const data = await response.json();
+        
+        if (data.status === 'OK') {
+          return res.json({ routes: data.routes });
+        }
+        console.warn("Google Maps Directions failed, falling back to OSRM:", data.status);
       }
       
-      if (preference === 'shortest') {
-        url += `&alternatives=true`;
-      }
+      // Fallback to OSRM API
+      let osrmProfile = 'driving';
+      if (mode === 'walking') osrmProfile = 'foot';
+      if (mode === 'bicycling') osrmProfile = 'bike';
+      // OSRM doesn't support transit, fallback to driving
       
-      const response = await fetch(url);
+      const [oLat, oLng] = (origin as string).split(',');
+      const [dLat, dLng] = (destination as string).split(',');
+      
+      const osrmUrl = `https://router.project-osrm.org/route/v1/${osrmProfile}/${oLng},${oLat};${dLng},${dLat}?overview=full&geometries=geojson&alternatives=true&steps=true`;
+      
+      const response = await fetch(osrmUrl);
       const data = await response.json();
       
-      if (preference === 'shortest' && data.routes && data.routes.length > 1) {
-        // Sort routes by distance
-        data.routes.sort((a: any, b: any) => {
-          const distA = a.legs[0].distance.value;
-          const distB = b.legs[0].distance.value;
-          return distA - distB;
-        });
+      if (data.code !== 'Ok') {
+        return res.status(400).json({ error: 'Failed to fetch directions from OSRM' });
       }
       
-      res.json(data);
+      // Map OSRM response to Google Maps format
+      const routes = data.routes.map((route: any) => {
+        return {
+          summary: route.legs[0].summary || 'OSRM Route',
+          legs: [{
+            distance: { text: `${(route.distance / 1000).toFixed(1)} km`, value: route.distance },
+            duration: { text: `${Math.round(route.duration / 60)} mins`, value: route.duration },
+            steps: route.legs[0].steps.map((step: any) => ({
+              html_instructions: step.maneuver.instruction || `${step.maneuver.type} ${step.maneuver.modifier || ''} on ${step.name || 'road'}`,
+              distance: { text: `${(step.distance / 1000).toFixed(1)} km`, value: step.distance },
+              duration: { text: `${Math.round(step.duration / 60)} mins`, value: step.duration }
+            }))
+          }],
+          overview_polyline: {
+            points: route.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]])
+          }
+        };
+      });
+      
+      res.json({ routes });
     } catch (error) {
       console.error("Error fetching directions:", error);
       res.status(500).json({ error: 'Failed to fetch directions' });
+    }
+  });
+
+  app.get('/api/places/autocomplete', async (req, res) => {
+    const { input } = req.query;
+    const apiKey = process.env.VITE_GOOGLE_MAPS_API_KEY;
+    
+    if (!apiKey || apiKey === 'YOUR_GOOGLE_MAPS_API_KEY') {
+      return res.status(400).json({ error: 'Google Maps API key not configured' });
+    }
+    
+    try {
+      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(input as string)}&key=${apiKey}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      console.error("Error fetching places autocomplete:", error);
+      res.status(500).json({ error: 'Failed to fetch places' });
+    }
+  });
+
+  app.get('/api/places/details', async (req, res) => {
+    const { place_id } = req.query;
+    const apiKey = process.env.VITE_GOOGLE_MAPS_API_KEY;
+    
+    if (!apiKey || apiKey === 'YOUR_GOOGLE_MAPS_API_KEY') {
+      return res.status(400).json({ error: 'Google Maps API key not configured' });
+    }
+    
+    try {
+      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place_id}&fields=geometry,name,formatted_address&key=${apiKey}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      console.error("Error fetching place details:", error);
+      res.status(500).json({ error: 'Failed to fetch place details' });
     }
   });
 

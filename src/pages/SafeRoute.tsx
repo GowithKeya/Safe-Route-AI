@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, Tooltip } from 'react-leaflet';
-import { MapPin, Navigation, ShieldAlert, AlertTriangle, ShieldCheck, Clock, Layers, Crosshair, Plus, Minus, ChevronLeft, Home, Search, Activity, Sparkles, Save, Bookmark, Trash2, X, List, Share2, User } from 'lucide-react';
+import { MapPin, Navigation, ShieldAlert, AlertTriangle, ShieldCheck, Clock, Layers, Crosshair, Plus, Minus, ChevronLeft, Home, Search, Activity, Sparkles, Save, Bookmark, Trash2, X, List, Share2, User, Menu, Car, Bike, Train, Footprints } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { useLoadScript } from '@react-google-maps/api';
-
-const libraries: ("places")[] = ["places"];
+import { GoogleGenAI, Type } from "@google/genai";
+import Markdown from 'react-markdown';
+import { findSafestRouteDijkstra } from '../utils/dijkstra';
 
 // Fix for default marker icons in Leaflet with React
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -17,25 +17,45 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const createEmojiIcon = (emoji: string, size: number = 32) => {
+const createGoogleMarker = (bgColor: string, innerSvg: string, size: number = 32) => {
   return L.divIcon({
-    className: 'custom-emoji-icon',
-    html: `<div style="font-size: ${size}px; line-height: 1; text-align: center; display: flex; align-items: center; justify-content: center; width: ${size}px; height: ${size}px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));">${emoji}</div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor: [0, -size / 2]
+    className: 'custom-google-marker',
+    html: `
+      <div style="position: relative; width: ${size}px; height: ${size * 1.25}px; display: flex; align-items: center; justify-content: center; transform: translateY(-${size * 0.25}px);">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" style="position: absolute; width: 100%; height: 100%; fill: ${bgColor}; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));">
+          <path d="M172.268 501.67C26.97 291.031 0 269.413 0 192 0 85.961 85.961 0 192 0s192 85.961 192 192c0 77.413-26.97 99.031-172.268 309.67-9.535 13.774-29.93 13.773-39.464 0z"/>
+        </svg>
+        <div style="position: absolute; top: ${size * 0.2}px; color: white; width: ${size * 0.5}px; height: ${size * 0.5}px; display: flex; align-items: center; justify-content: center;">
+          ${innerSvg}
+        </div>
+      </div>
+    `,
+    iconSize: [size, size * 1.25],
+    iconAnchor: [size / 2, size * 1.25],
+    popupAnchor: [0, -(size * 1.25)]
   });
 };
 
-const customAmbulanceIcon = createEmojiIcon('🚑', 32);
-const customFireIcon = createEmojiIcon('🚒', 32);
-const customPoliceIcon = createEmojiIcon('🚓', 32);
-const customHospitalIcon = createEmojiIcon('🏥', 32);
-const customPharmacyIcon = createEmojiIcon('💊', 24);
-const customClinicIcon = createEmojiIcon('👨‍⚕️', 24);
-const customOriginIcon = createEmojiIcon('📍', 32);
-const customDestIcon = createEmojiIcon('🏁', 32);
-const customHazardIcon = createEmojiIcon('⚠️', 32);
+const svgs = {
+  cross: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
+  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  fire: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/></svg>',
+  circle: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>',
+  flag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"/></svg>',
+  exclamation: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/></svg>',
+  h: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5v14M16 5v14M8 12h8"/></svg>',
+  rx: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18l-8-8M8 18l8-8M5 4h6a4 4 0 0 1 0 8H5V4z"/></svg>',
+};
+
+const customAmbulanceIcon = createGoogleMarker('#ef4444', svgs.cross, 32);
+const customFireIcon = createGoogleMarker('#f97316', svgs.fire, 32);
+const customPoliceIcon = createGoogleMarker('#3b82f6', svgs.shield, 32);
+const customHospitalIcon = createGoogleMarker('#ef4444', svgs.h, 32);
+const customPharmacyIcon = createGoogleMarker('#10b981', svgs.rx, 28);
+const customClinicIcon = createGoogleMarker('#0ea5e9', svgs.cross, 28);
+const customOriginIcon = createGoogleMarker('#3b82f6', svgs.circle, 32);
+const customDestIcon = createGoogleMarker('#ef4444', svgs.flag, 32);
+const customHazardIcon = createGoogleMarker('#eab308', svgs.exclamation, 32);
 
 // Map Controller Component
 function MapController({ center, zoom, bounds }: { center: [number, number], zoom: number, bounds?: L.LatLngBoundsExpression }) {
@@ -82,16 +102,26 @@ function decodePolyline(encoded: string) {
   return points;
 }
 
+const calculateDistance = (p1: {lat: number, lng: number}, p2: {lat: number, lng: number}) => {
+  const R = 6371e3; // metres
+  const φ1 = p1.lat * Math.PI/180; // φ, λ in radians
+  const φ2 = p2.lat * Math.PI/180;
+  const Δφ = (p2.lat-p1.lat) * Math.PI/180;
+  const Δλ = (p2.lng-p1.lng) * Math.PI/180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+  return R * c; // in metres
+};
+
 const defaultCenter: [number, number] = [28.6139, 77.2090]; // New Delhi
 
 const socket = io();
 
 export default function SafeRoute() {
-  const { isLoaded } = useLoadScript({
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
-    libraries,
-  });
-
   const navigate = useNavigate();
   const [mapCenter, setMapCenter] = useState<[number, number]>(defaultCenter);
   const [mapZoom, setMapZoom] = useState(12);
@@ -109,7 +139,15 @@ export default function SafeRoute() {
   const [origin, setOrigin] = useState<any | null>(null);
   const [destination, setDestination] = useState<any | null>(null);
   
+  const [availableRoutes, setAvailableRoutes] = useState<any[]>([]);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState<number>(0);
+  const [aiAnalysis, setAiAnalysis] = useState<string>('');
+  const [groundingLinks, setGroundingLinks] = useState<any[]>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
   const [route, setRoute] = useState<[number, number][] | null>(null);
+  const [dijkstraRoute, setDijkstraRoute] = useState<[number, number][] | null>(null);
+  const [allHotspots, setAllHotspots] = useState<any[]>([]);
   const [eta, setEta] = useState<string | null>(null);
   const [distance, setDistance] = useState<string | null>(null);
   const [directions, setDirections] = useState<any[]>([]);
@@ -118,11 +156,22 @@ export default function SafeRoute() {
   const [hoveredHotspot, setHoveredHotspot] = useState<any | null>(null);
   
   const [safetyStats, setSafetyStats] = useState<any | null>(null);
+  const [allRoutesSafetyStats, setAllRoutesSafetyStats] = useState<any[]>([]);
   const [facilities, setFacilities] = useState<any[]>([]);
   const [localPOIs, setLocalPOIs] = useState<any[]>([]);
   const [fleet, setFleet] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<Record<string, any>>({});
   const [savedRoutes, setSavedRoutes] = useState<any[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [transportMode, setTransportMode] = useState(() => localStorage.getItem('safeRoute_transportMode') || 'driving');
+  const [avoidTolls, setAvoidTolls] = useState(() => localStorage.getItem('safeRoute_avoidTolls') === 'true');
+  const [avoidHighways, setAvoidHighways] = useState(() => localStorage.getItem('safeRoute_avoidHighways') === 'true');
+
+  useEffect(() => {
+    localStorage.setItem('safeRoute_transportMode', transportMode);
+    localStorage.setItem('safeRoute_avoidTolls', String(avoidTolls));
+    localStorage.setItem('safeRoute_avoidHighways', String(avoidHighways));
+  }, [transportMode, avoidTolls, avoidHighways]);
   
   // Filters for facilities
   const [showPolice, setShowPolice] = useState(true);
@@ -310,40 +359,54 @@ export default function SafeRoute() {
       }
     });
 
-    // 2. Google Maps Places Search
-    if (results.length < 5 && isLoaded && window.google) {
+    // 2. AI Search with Gemini and Google Maps tool
+    if (results.length < 5) {
       try {
-        const autocompleteService = new window.google.maps.places.AutocompleteService();
-        const predictions = await new Promise<any[]>((resolve) => {
-          autocompleteService.getPlacePredictions({ input: query }, (preds, status) => {
-            if (status === window.google.maps.places.PlacesServiceStatus.OK && preds) {
-              resolve(preds);
-            } else {
-              resolve([]);
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: `Find the location and coordinates for: "${query}". Return ONLY a valid JSON array of up to 5 results. Each result must have: "name" (string), "address" (string), "lat" (number), "lng" (number). Do not include any markdown formatting like \`\`\`json, just the raw JSON array.`,
+          config: {
+            tools: [{ googleMaps: {} }],
+            toolConfig: {
+              retrievalConfig: {
+                latLng: {
+                  latitude: mapCenter[0],
+                  longitude: mapCenter[1]
+                }
+              }
             }
-          });
-        });
-        
-        predictions.forEach((p) => {
-          if (!results.some(r => r.name === p.structured_formatting.main_text)) {
-            const trafficLevels = ['Light', 'Moderate', 'Heavy'];
-            const traffic = trafficLevels[Math.floor(Math.random() * 3)];
-            results.push({
-              id: `gmap-${p.place_id}`,
-              name: p.structured_formatting.main_text,
-              fullName: p.description,
-              type: 'Location',
-              traffic: traffic,
-              isSafeZone: false,
-              placeId: p.place_id,
-            });
           }
         });
+        
+        let text = response.text;
+        if (text) {
+          const match = text.match(/\[[\s\S]*\]/);
+          if (match) {
+            const data = JSON.parse(match[0]);
+            data.forEach((item: any) => {
+              if (!results.some(r => r.name === item.name || r.fullName === item.address)) {
+                results.push({
+                  id: `ai-${Math.random()}`,
+                  name: item.name,
+                  fullName: item.address,
+                  type: 'Location',
+                  traffic: ['Light', 'Moderate', 'Heavy'][Math.floor(Math.random() * 3)],
+                  isSafeZone: false,
+                  lat: item.lat,
+                  lng: item.lng
+                });
+              }
+            });
+          }
+        }
       } catch (e) {
-        console.error("Google Maps Search failed", e);
+        console.error("AI Search failed", e);
       }
-    } else if (results.length < 5) {
-      // Fallback to Nominatim
+    }
+
+    // 3. Fallback to Nominatim if AI fails or returns nothing
+    if (results.length === 0) {
       try {
         const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
         const data = await res.json();
@@ -386,29 +449,73 @@ export default function SafeRoute() {
     return () => clearTimeout(timer);
   }, [destQuery, destination]);
 
-  const generateRouteSafetyAnalysis = (routePoints: [number, number][], destName: string) => {
-    // Mock safety generation based on name length to be deterministic
-    const seed = destName.length;
+  const generateRouteSafetyAnalysis = async (routePoints: [number, number][], destName: string) => {
+    // Mock safety generation based on name length and route length to be deterministic but different per route
+    const seed = destName.length + routePoints.length;
     const isSafe = seed % 3 !== 0; // 66% chance of being "Safe"
     const score = isSafe ? 75 + (seed % 20) : 40 + (seed % 30);
     
     // Generate some mock hotspots along the route
-    const hotspots = [];
+    const hotspots: any[] = [];
     if (routePoints.length > 10) {
       const numHotspots = isSafe ? 1 : 3;
-      for (let i = 0; i < numHotspots; i++) {
-        // Pick a point roughly evenly spaced
-        const index = Math.floor((routePoints.length / (numHotspots + 1)) * (i + 1));
-        const point = routePoints[index];
-        if (point) {
-          hotspots.push({
-            id: `hotspot-${i}`,
-            lat: point[0],
-            lng: point[1],
-            type: ['Poor Lighting', 'High Crime Area', 'Accident Prone Zone'][Math.floor(Math.random() * 3)],
-            severity: ['Medium', 'High'][Math.floor(Math.random() * 2)],
-            description: ['Multiple incidents reported in the last 30 days.', 'Area known for low visibility at night.', 'Recent spike in petty theft reports.', 'Frequent traffic collisions at this intersection.'][Math.floor(Math.random() * 4)]
-          });
+      
+      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: `Generate ${numHotspots} plausible hazard hotspots for a route to ${destName} with a safety score of ${score}/100.
+          Vary the severity (e.g., High, Medium) and type (e.g., Poor Lighting, High Crime Area, Accident Prone Zone).
+          Return a JSON array of objects with properties: type (string), severity (string), description (string).`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  type: { type: Type.STRING },
+                  severity: { type: Type.STRING },
+                  description: { type: Type.STRING }
+                },
+                required: ["type", "severity", "description"]
+              }
+            }
+          }
+        });
+        
+        const generatedHotspots = JSON.parse(response.text || "[]");
+        
+        for (let i = 0; i < Math.min(generatedHotspots.length, numHotspots); i++) {
+          const index = Math.floor((routePoints.length / (numHotspots + 1)) * (i + 1));
+          const point = routePoints[index];
+          if (point) {
+            hotspots.push({
+              id: `hotspot-${i}`,
+              lat: point[0],
+              lng: point[1],
+              type: generatedHotspots[i].type,
+              severity: generatedHotspots[i].severity,
+              description: generatedHotspots[i].description
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Failed to generate hotspots with AI", error);
+        // Fallback
+        for (let i = 0; i < numHotspots; i++) {
+          const index = Math.floor((routePoints.length / (numHotspots + 1)) * (i + 1));
+          const point = routePoints[index];
+          if (point) {
+            hotspots.push({
+              id: `hotspot-${i}`,
+              lat: point[0],
+              lng: point[1],
+              type: ['Poor Lighting', 'High Crime Area', 'Accident Prone Zone'][Math.floor(Math.random() * 3)],
+              severity: ['Medium', 'High'][Math.floor(Math.random() * 2)],
+              description: ['Multiple incidents reported in the last 30 days.', 'Area known for low visibility at night.', 'Recent spike in petty theft reports.', 'Frequent traffic collisions at this intersection.'][Math.floor(Math.random() * 4)]
+            });
+          }
         }
       }
     }
@@ -416,7 +523,7 @@ export default function SafeRoute() {
     return {
       isSafe,
       score,
-      trafficCondition: ['Light', 'Moderate', 'Heavy'][Math.floor(Math.random() * 3)],
+      trafficCondition: ['Light', 'Moderate', 'Heavy'][seed % 3],
       crimes: [
         { type: "Theft/Pickpocketing", percent: 45 + (seed % 10) },
         { type: "Vandalism", percent: 25 + (seed % 15) },
@@ -474,7 +581,17 @@ export default function SafeRoute() {
       }
       
       const data = JSON.parse(text);
-      setFacilities(data.elements || []);
+      const allFacilities = data.elements || [];
+      
+      // Filter facilities to only those within ~2km of any route point
+      const filteredFacilities = allFacilities.filter((fac: any) => {
+        return routePoints.some(p => {
+          const dist = calculateDistance({lat: p[0], lng: p[1]}, {lat: fac.lat, lng: fac.lon});
+          return dist < 2000; // 2km radius
+        });
+      });
+      
+      setFacilities(filteredFacilities);
     } catch (e) {
       console.warn("Failed to fetch facilities along route.", e);
     }
@@ -501,36 +618,310 @@ export default function SafeRoute() {
     }
   }, []);
 
+  const analyzeRoutesWithAI = async (o: any, d: any, routes: any[]) => {
+    setIsAnalyzing(true);
+    setAiAnalysis('');
+    setGroundingLinks([]);
+    
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      
+      const routeSummaries = routes.map((r, i) => {
+        const leg = r.legs[0];
+        return `Route ${i + 1}: via ${r.summary}. Distance: ${leg.distance?.text}, Duration: ${leg.duration?.text}.`;
+      }).join('\n');
+
+      const prompt = `Analyze the routes from ${o.name} to ${d.name}.
+      Available Routes:
+      ${routeSummaries}
+      
+      Provide a rating for each available route based on which is easier, safer, and faster.
+      Filter the routes and tell me the current traffic conditions.
+      Suggest the best route overall for safety and speed.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          tools: [{ googleMaps: {} }],
+        }
+      });
+      
+      setAiAnalysis(response.text || '');
+      
+      // Extract grounding links
+      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      if (chunks) {
+        const links: any[] = [];
+        chunks.forEach((chunk: any) => {
+          if (chunk.web?.uri) {
+            links.push({ uri: chunk.web.uri, title: chunk.web.title });
+          } else if (chunk.maps?.uri) {
+            links.push({ uri: chunk.maps.uri, title: chunk.maps.title || 'Google Maps' });
+          }
+        });
+        setGroundingLinks(links);
+      }
+    } catch (error) {
+      console.error("Failed to analyze routes with AI", error);
+      setAiAnalysis("Could not generate AI analysis for these routes.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const selectRoute = async (index: number, routesArray: any[] = availableRoutes, o: any = origin, d: any = destination, precalculatedStats: any[] = allRoutesSafetyStats) => {
+    if (!routesArray || routesArray.length === 0) return;
+    
+    setSelectedRouteIndex(index);
+    const selected = routesArray[index];
+    const leg = selected.legs[0];
+    
+    const etaText = leg.duration_in_traffic ? leg.duration_in_traffic.text : leg.duration?.text;
+    setEta(etaText);
+    setDistance(leg.distance?.text);
+    setDirections(leg.steps || []);
+    
+    const encoded = selected.overview_polyline.points;
+    const decodedRoute = Array.isArray(encoded) ? encoded : decodePolyline(encoded) as [number, number][];
+    
+    let allHotspots: any[] = [];
+    let primarySafetyAnalysis: any = null;
+    let newAllRoutesSafetyStats = [...precalculatedStats];
+    
+    if (precalculatedStats.length === routesArray.length) {
+      // Use precalculated stats
+      primarySafetyAnalysis = precalculatedStats[index];
+      precalculatedStats.forEach(analysis => {
+        if (analysis && analysis.hotspots) {
+          analysis.hotspots.forEach((h: any) => {
+            if (!allHotspots.some(existing => Math.abs(existing.lat - h.lat) < 0.001 && Math.abs(existing.lng - h.lng) < 0.001)) {
+              allHotspots.push(h);
+            }
+          });
+        }
+      });
+    } else {
+      // Generate safety analysis for all routes to get a comprehensive set of hotspots
+      for (let i = 0; i < routesArray.length; i++) {
+        const rEncoded = routesArray[i].overview_polyline.points;
+        const rDecoded = Array.isArray(rEncoded) ? rEncoded : decodePolyline(rEncoded) as [number, number][];
+        const analysis = await generateRouteSafetyAnalysis(rDecoded, d.name);
+        
+        newAllRoutesSafetyStats[i] = analysis;
+        
+        if (i === index) {
+          primarySafetyAnalysis = analysis;
+        }
+        
+        // Add unique hotspots
+        analysis.hotspots.forEach((h: any) => {
+          if (!allHotspots.some(existing => Math.abs(existing.lat - h.lat) < 0.001 && Math.abs(existing.lng - h.lng) < 0.001)) {
+            allHotspots.push(h);
+          }
+        });
+      }
+      setAllRoutesSafetyStats(newAllRoutesSafetyStats);
+    }
+    
+    if (primarySafetyAnalysis) {
+      primarySafetyAnalysis.hotspots = allHotspots;
+      setSafetyStats(primarySafetyAnalysis);
+    }
+    
+    // Run Dijkstra's algorithm to find the safest route avoiding all hotspots
+    const dijkstraResult = findSafestRouteDijkstra(
+      routesArray, 
+      allHotspots, 
+      [o.lat, o.lng], 
+      [d.lat, d.lng]
+    );
+    
+    if (dijkstraResult.path.length > 0) {
+      setRoute(dijkstraResult.path);
+      // Update distance with Dijkstra's distance
+      setDistance(`${(dijkstraResult.distance / 1000).toFixed(1)} km (Safest Path)`);
+    } else {
+      setRoute(decodedRoute);
+    }
+    
+    setMapBounds([
+      [o.lat, o.lng],
+      [d.lat, d.lng]
+    ]);
+    
+    fetchFacilitiesAlongRoute(dijkstraResult.path.length > 0 ? dijkstraResult.path : decodedRoute);
+  };
+
+  const buildAndRunDijkstra = (routes: any[], hotspots: any[], originLoc: any, destLoc: any) => {
+    const graph: Record<string, { edges: { to: string, weight: number, polyline: string }[], lat: number, lng: number }> = {};
+    
+    const roundCoord = (val: number) => Math.round(val * 10000) / 10000;
+    const getNodeId = (lat: number, lng: number) => `${roundCoord(lat)},${roundCoord(lng)}`;
+    
+    // Build graph
+    routes.forEach(r => {
+      r.legs[0].steps.forEach((step: any) => {
+        const startId = getNodeId(step.start_location.lat, step.start_location.lng);
+        const endId = getNodeId(step.end_location.lat, step.end_location.lng);
+        
+        if (!graph[startId]) graph[startId] = { edges: [], lat: step.start_location.lat, lng: step.start_location.lng };
+        if (!graph[endId]) graph[endId] = { edges: [], lat: step.end_location.lat, lng: step.end_location.lng };
+        
+        // Calculate hotspot penalty
+        let penalty = 0;
+        hotspots.forEach(hotspot => {
+          const distToStart = calculateDistance(step.start_location, { lat: hotspot.lat, lng: hotspot.lng });
+          const distToEnd = calculateDistance(step.end_location, { lat: hotspot.lat, lng: hotspot.lng });
+          const minDist = Math.min(distToStart, distToEnd);
+          
+          if (minDist < 500) { // within 500 meters
+            const severityMultiplier = hotspot.severity === 'High' ? 5 : 2;
+            penalty += (500 - minDist) * severityMultiplier; // closer = higher penalty
+          }
+        });
+        
+        const weight = step.distance.value + penalty;
+        
+        graph[startId].edges.push({ to: endId, weight, polyline: step.polyline.points });
+      });
+    });
+    
+    // Find start and end nodes in the graph that are closest to origin and destination
+    let startNode = '';
+    let endNode = '';
+    let minStartDist = Infinity;
+    let minEndDist = Infinity;
+    
+    Object.keys(graph).forEach(id => {
+      const node = graph[id];
+      const dStart = calculateDistance({lat: originLoc.lat, lng: originLoc.lng}, {lat: node.lat, lng: node.lng});
+      const dEnd = calculateDistance({lat: destLoc.lat, lng: destLoc.lng}, {lat: node.lat, lng: node.lng});
+      
+      if (dStart < minStartDist) {
+        minStartDist = dStart;
+        startNode = id;
+      }
+      if (dEnd < minEndDist) {
+        minEndDist = dEnd;
+        endNode = id;
+      }
+    });
+    
+    if (!startNode || !endNode) return null;
+    
+    // Dijkstra's Algorithm
+    const distances: Record<string, number> = {};
+    const previous: Record<string, { id: string, polyline: string } | null> = {};
+    const unvisited = new Set<string>();
+    
+    Object.keys(graph).forEach(id => {
+      distances[id] = Infinity;
+      previous[id] = null;
+      unvisited.add(id);
+    });
+    
+    distances[startNode] = 0;
+    
+    while (unvisited.size > 0) {
+      let currNode: string | null = null;
+      let minDistance = Infinity;
+      
+      unvisited.forEach(id => {
+        if (distances[id] < minDistance) {
+          minDistance = distances[id];
+          currNode = id;
+        }
+      });
+      
+      if (!currNode || distances[currNode] === Infinity) break;
+      if (currNode === endNode) break;
+      
+      unvisited.delete(currNode);
+      
+      graph[currNode].edges.forEach(edge => {
+        if (unvisited.has(edge.to)) {
+          const alt = distances[currNode!] + edge.weight;
+          if (alt < distances[edge.to]) {
+            distances[edge.to] = alt;
+            previous[edge.to] = { id: currNode!, polyline: edge.polyline };
+          }
+        }
+      });
+    }
+    
+    // Reconstruct path
+    const pathPolylines: string[] = [];
+    let curr: string | null = endNode;
+    
+    while (curr && previous[curr]) {
+      pathPolylines.unshift(previous[curr]!.polyline);
+      curr = previous[curr]!.id;
+    }
+    
+    if (pathPolylines.length === 0) return null;
+    
+    // Decode all polylines and combine
+    const fullPath: [number, number][] = [];
+    pathPolylines.forEach(poly => {
+      const decoded = decodePolyline(poly) as [number, number][];
+      fullPath.push(...decoded);
+    });
+    
+    return fullPath;
+  };
+
   const calculateSafeRouteWithArgs = async (o: any, d: any) => {
     if (!o || !d) return;
     
     setIsCalculating(true);
+    setDijkstraRoute(null);
+    setAllHotspots([]);
     
     try {
-      const res = await fetch(`/api/directions?origin=${o.lat},${o.lng}&destination=${d.lat},${d.lng}`);
+      let url = `/api/directions?origin=${o.lat},${o.lng}&destination=${d.lat},${d.lng}&mode=${transportMode}`;
+      if (avoidTolls) url += '&avoid=tolls';
+      if (avoidHighways) url += avoidTolls ? '|highways' : '&avoid=highways';
+      
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         if (data.routes && data.routes.length > 0) {
-          const leg = data.routes[0].legs[0];
-          const etaText = leg.duration_in_traffic ? leg.duration_in_traffic.text : leg.duration?.text;
-          setEta(etaText);
-          setDistance(leg.distance?.text);
-          setDirections(leg.steps || []);
+          setAvailableRoutes(data.routes);
+          setSelectedRouteIndex(0);
           
-          const encoded = data.routes[0].overview_polyline.points;
-          const decodedRoute = decodePolyline(encoded) as [number, number][];
-          setRoute(decodedRoute);
+          // Generate hotspots for all routes in parallel
+          const allGeneratedHotspots: any[] = [];
+          const allAnalyses: any[] = [];
+          await Promise.all(data.routes.map(async (r: any, idx: number) => {
+            const encoded = r.overview_polyline.points;
+            const decodedRoute = decodePolyline(encoded) as [number, number][];
+            const safetyAnalysis = await generateRouteSafetyAnalysis(decodedRoute, d.name);
+            allAnalyses[idx] = safetyAnalysis;
+            if (safetyAnalysis.hotspots) {
+              allGeneratedHotspots.push(...safetyAnalysis.hotspots);
+            }
+          }));
           
-          setSafetyStats(generateRouteSafetyAnalysis(decodedRoute, d.name));
+          setAllRoutesSafetyStats(allAnalyses);
           
-          // Set bounds to fit the route
-          setMapBounds([
-            [o.lat, o.lng],
-            [d.lat, d.lng]
-          ]);
+          // Filter unique hotspots
+          const uniqueHotspots: any[] = [];
+          allGeneratedHotspots.forEach((h: any) => {
+            if (!uniqueHotspots.some(existing => Math.abs(existing.lat - h.lat) < 0.001 && Math.abs(existing.lng - h.lng) < 0.001)) {
+              uniqueHotspots.push(h);
+            }
+          });
+          setAllHotspots(uniqueHotspots);
           
-          // Fetch emergency services along the route
-          fetchFacilitiesAlongRoute(decodedRoute);
+          // Run Dijkstra to find the safest route combining all segments
+          const safestPath = buildAndRunDijkstra(data.routes, uniqueHotspots, o, d);
+          if (safestPath) {
+            setDijkstraRoute(safestPath);
+          }
+          
+          selectRoute(0, data.routes, o, d, allAnalyses);
+          analyzeRoutesWithAI(o, d, data.routes);
         }
       }
     } catch (err) {
@@ -541,7 +932,13 @@ export default function SafeRoute() {
   };
 
   const calculateSafeRoute = async () => {
-    return calculateSafeRouteWithArgs(origin, destination);
+    let startPoint = origin;
+    if (!startPoint && liveLocation) {
+      startPoint = { lat: liveLocation[0], lng: liveLocation[1], name: 'Current Location' };
+      setOrigin(startPoint);
+      setOriginQuery('Current Location');
+    }
+    return calculateSafeRouteWithArgs(startPoint, destination);
   };
 
   // Generate colored route segments based on historical traffic
@@ -675,52 +1072,75 @@ export default function SafeRoute() {
     return segments;
   };
 
-  const handleSelectOrigin = (res: any) => {
-    if (res.placeId && window.google) {
-      const geocoder = new window.google.maps.Geocoder();
-      geocoder.geocode({ placeId: res.placeId }, (results, status) => {
-        if (status === 'OK' && results && results[0]) {
-          const location = results[0].geometry.location;
-          const newOrigin = { ...res, lat: location.lat(), lng: location.lng() };
-          setOrigin(newOrigin);
-          setOriginQuery(res.name);
-          setOriginResults([]);
-          setMapCenter([location.lat(), location.lng()]);
+  const handleSelectOrigin = async (res: any) => {
+    setOriginQuery(res.name);
+    setOriginResults([]);
+    
+    if (res.place_id && !res.lat) {
+      try {
+        const detailsRes = await fetch(`/api/places/details?place_id=${res.place_id}`);
+        if (detailsRes.ok) {
+          const data = await detailsRes.json();
+          if (data.result && data.result.geometry) {
+            const lat = data.result.geometry.location.lat;
+            const lng = data.result.geometry.location.lng;
+            const updatedRes = { ...res, lat, lng };
+            setOrigin(updatedRes);
+            setMapCenter([lat, lng]);
+            return;
+          }
         }
-      });
-    } else {
-      setOrigin(res);
-      setOriginQuery(res.name);
-      setOriginResults([]);
-      if (res.lat && res.lng) setMapCenter([res.lat, res.lng]);
+      } catch (e) {
+        console.error("Failed to fetch place details", e);
+      }
     }
+    
+    setOrigin(res);
+    if (res.lat && res.lng) setMapCenter([res.lat, res.lng]);
   };
 
-  const handleSelectDestination = (res: any) => {
-    if (res.placeId && window.google) {
-      const geocoder = new window.google.maps.Geocoder();
-      geocoder.geocode({ placeId: res.placeId }, (results, status) => {
-        if (status === 'OK' && results && results[0]) {
-          const location = results[0].geometry.location;
-          const newDest = { ...res, lat: location.lat(), lng: location.lng() };
-          setDestination(newDest);
-          setDestQuery(res.name);
-          setDestResults([]);
-          setMapCenter([location.lat(), location.lng()]);
+  const handleSelectDestination = async (res: any) => {
+    setDestQuery(res.name);
+    setDestResults([]);
+    
+    if (res.place_id && !res.lat) {
+      try {
+        const detailsRes = await fetch(`/api/places/details?place_id=${res.place_id}`);
+        if (detailsRes.ok) {
+          const data = await detailsRes.json();
+          if (data.result && data.result.geometry) {
+            const lat = data.result.geometry.location.lat;
+            const lng = data.result.geometry.location.lng;
+            const updatedRes = { ...res, lat, lng };
+            setDestination(updatedRes);
+            if (lat && lng) setMapCenter([lat, lng]);
+            return;
+          }
         }
-      });
-    } else {
-      setDestination(res);
-      setDestQuery(res.name);
-      setDestResults([]);
-      if (res.lat && res.lng) setMapCenter([res.lat, res.lng]);
+      } catch (e) {
+        console.error("Failed to fetch place details", e);
+      }
     }
+    
+    setDestination(res);
+    if (res.lat && res.lng) setMapCenter([res.lat, res.lng]);
   };
 
   return (
-    <div className="flex h-screen bg-zinc-950 text-white overflow-hidden">
+    <div className="flex h-screen bg-zinc-950 text-white overflow-hidden relative">
+      {/* Sidebar Toggle Button (Mobile/Hidden state) */}
+      {!isSidebarOpen && (
+        <button 
+          onClick={() => setIsSidebarOpen(true)}
+          className="absolute top-4 left-4 z-50 p-3 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
+          title="Open Sidebar"
+        >
+          <Menu size={20} />
+        </button>
+      )}
+
       {/* Sidebar */}
-      <div className="w-96 bg-zinc-900 border-r border-zinc-800 flex flex-col z-10 shadow-2xl">
+      <div className={`w-96 bg-zinc-900 border-r border-zinc-800 flex flex-col z-40 shadow-2xl transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full absolute h-full'}`}>
         <div className="p-6 border-b border-zinc-800">
           <div className="flex items-center gap-2 mb-4">
             <button onClick={() => navigate(-1)} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Go Back">
@@ -732,6 +1152,13 @@ export default function SafeRoute() {
               </button>
               <button onClick={() => navigate('/')} className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" title="Go Home">
                 <Home size={16} />
+              </button>
+              <button 
+                onClick={() => setIsSidebarOpen(false)}
+                className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-md text-zinc-300 transition-colors" 
+                title="Hide Sidebar"
+              >
+                <ChevronLeft size={16} className="rotate-180" />
               </button>
             </div>
           </div>
@@ -751,7 +1178,15 @@ export default function SafeRoute() {
                 type="text" 
                 value={originQuery}
                 onChange={(e) => { setOriginQuery(e.target.value); setOrigin(null); }}
-                placeholder="AI Search starting point..." 
+                onFocus={() => {
+                  if (origin && destination) {
+                    setMapBounds([[origin.lat, origin.lng], [destination.lat, destination.lng]]);
+                  } else if (origin) {
+                    setMapCenter([origin.lat, origin.lng]);
+                    setMapZoom(15);
+                  }
+                }}
+                placeholder="AI Search starting point (or use GPS)..." 
                 className="w-full bg-zinc-950 border border-zinc-800 rounded-lg py-3 pl-10 pr-10 text-sm focus:outline-none focus:border-blue-500 transition-colors"
               />
               <button 
@@ -855,12 +1290,60 @@ export default function SafeRoute() {
               )}
             </div>
 
+            {/* Transport Mode Selector */}
+            <div className="flex bg-zinc-800 rounded-lg p-1 mb-3">
+              {[
+                { id: 'driving', icon: Car, label: 'Car' },
+                { id: 'bicycling', icon: Bike, label: 'Bike' },
+                { id: 'transit', icon: Train, label: 'Transit' },
+                { id: 'walking', icon: Footprints, label: 'Walk' }
+              ].map(mode => (
+                <button
+                  key={mode.id}
+                  onClick={() => setTransportMode(mode.id)}
+                  className={`flex-1 flex flex-col items-center justify-center py-2 rounded-md transition-colors ${
+                    transportMode === mode.id 
+                      ? 'bg-zinc-700 text-blue-400 shadow-sm' 
+                      : 'text-zinc-400 hover:text-zinc-300 hover:bg-zinc-700/50'
+                  }`}
+                  title={mode.label}
+                >
+                  <mode.icon size={18} className="mb-1" />
+                  <span className="text-[10px] font-medium">{mode.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Route Options */}
+            {transportMode === 'driving' && (
+              <div className="flex gap-4 mb-4 px-2">
+                <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={avoidTolls} 
+                    onChange={(e) => setAvoidTolls(e.target.checked)}
+                    className="rounded border-zinc-700 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900"
+                  />
+                  Avoid Tolls
+                </label>
+                <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={avoidHighways} 
+                    onChange={(e) => setAvoidHighways(e.target.checked)}
+                    className="rounded border-zinc-700 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900"
+                  />
+                  Avoid Highways
+                </label>
+              </div>
+            )}
+
             <div className="flex gap-2">
               <button 
                 onClick={calculateSafeRoute}
-                disabled={!origin || !destination || isCalculating}
+                disabled={(!origin && (originQuery.trim() !== '' || !liveLocation)) || !destination || isCalculating}
                 className={`flex-1 py-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-                  !origin || !destination 
+                  (!origin && (originQuery.trim() !== '' || !liveLocation)) || !destination 
                     ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
                     : 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'
                 }`}
@@ -980,6 +1463,104 @@ export default function SafeRoute() {
           {/* Route Info & Safety Stats */}
           {route && safetyStats && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {/* Available Routes Selector */}
+              {availableRoutes.length > 1 && (
+                <div className="bg-zinc-950 rounded-xl p-4 border border-zinc-800">
+                  <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Available Routes</h3>
+                  <div className="space-y-2">
+                    {availableRoutes.map((r, idx) => {
+                      const stats = allRoutesSafetyStats[idx];
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => selectRoute(idx)}
+                          className={`w-full text-left p-3 rounded-lg border transition-all ${
+                            selectedRouteIndex === idx
+                              ? 'bg-blue-500/10 border-blue-500/50 text-blue-400'
+                              : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                          }`}
+                        >
+                          <div className="flex justify-between items-start mb-1">
+                            <div className="font-medium text-sm">{r.summary || `Route ${idx + 1}`}</div>
+                            {stats && (
+                              <div className={`text-xs font-bold px-2 py-0.5 rounded ${
+                                stats.score >= 80 ? 'bg-green-500/20 text-green-400' :
+                                stats.score >= 60 ? 'bg-yellow-500/20 text-yellow-400' :
+                                'bg-red-500/20 text-red-400'
+                              }`}>
+                                {stats.score}/100
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-xs flex justify-between mb-2">
+                            <span>{r.legs[0].distance?.text}</span>
+                            <span>{r.legs[0].duration_in_traffic ? r.legs[0].duration_in_traffic.text : r.legs[0].duration?.text}</span>
+                          </div>
+                          {stats && stats.crimes && (
+                            <div className="text-[10px] text-zinc-500 flex flex-wrap gap-1 mt-1">
+                              {stats.crimes.slice(0, 2).map((crime: any, cIdx: number) => (
+                                <span key={cIdx} className="bg-zinc-800 px-1.5 py-0.5 rounded">
+                                  {crime.type} ({crime.percent}%)
+                                </span>
+                              ))}
+                              {stats.crimes.length > 2 && (
+                                <span className="bg-zinc-800 px-1.5 py-0.5 rounded">+{stats.crimes.length - 2} more</span>
+                              )}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {dijkstraRoute && (
+                    <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center gap-2 text-xs text-zinc-400">
+                      <div className="w-6 h-1 bg-purple-500 border-t-2 border-dashed border-purple-300"></div>
+                      <span>Dijkstra's Safest Path (Avoids Hotspots)</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* AI Analysis */}
+              {(isAnalyzing || aiAnalysis) && (
+                <div className="bg-zinc-950 rounded-xl p-4 border border-zinc-800 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl -mr-16 -mt-16"></div>
+                  <h3 className="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                    <Sparkles size={14} /> AI Route Analysis
+                  </h3>
+                  
+                  {isAnalyzing ? (
+                    <div className="flex items-center gap-3 text-sm text-zinc-400 py-2">
+                      <div className="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                      Analyzing routes for safety, speed, and traffic...
+                    </div>
+                  ) : (
+                    <div className="text-sm text-zinc-300 space-y-3 max-w-none [&>h1]:text-lg [&>h1]:font-bold [&>h1]:text-white [&>h2]:text-base [&>h2]:font-bold [&>h2]:text-white [&>h3]:text-sm [&>h3]:font-bold [&>h3]:text-white [&>p]:mb-2 [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>li]:mb-1 [&>strong]:text-white [&>a]:text-blue-400 [&>a]:underline">
+                      <Markdown>{aiAnalysis}</Markdown>
+                      
+                      {groundingLinks.length > 0 && (
+                        <div className="mt-4 pt-3 border-t border-zinc-800/50">
+                          <h4 className="text-xs font-medium text-zinc-500 mb-2">Sources</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {groundingLinks.map((link, i) => (
+                              <a 
+                                key={i} 
+                                href={link.uri} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-[10px] px-2 py-1 bg-zinc-900 border border-zinc-800 rounded hover:border-zinc-700 text-blue-400 transition-colors"
+                              >
+                                {link.title}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Route Summary */}
               <div className="bg-zinc-950 rounded-xl p-4 border border-zinc-800">
                 <div className="flex justify-between items-center mb-3">
@@ -1252,16 +1833,9 @@ export default function SafeRoute() {
         >
           <MapController center={mapCenter} zoom={mapZoom} bounds={mapBounds} />
           <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+            attribution='&copy; Google Maps'
           />
-          {showTraffic && (
-            <TileLayer
-              url="https://mt1.google.com/vt/lyrs=h,traffic&x={x}&y={y}&z={z}"
-              attribution='&copy; Google Maps'
-              opacity={0.8}
-            />
-          )}
 
           {/* Origin Marker */}
           {origin && (
@@ -1282,7 +1856,7 @@ export default function SafeRoute() {
           )}
 
           {/* Hazard Hotspots */}
-          {safetyStats?.hotspots?.map((hotspot: any) => (
+          {allHotspots.map((hotspot: any) => (
             <Marker 
               key={hotspot.id} 
               position={[hotspot.lat, hotspot.lng]} 
@@ -1357,6 +1931,25 @@ export default function SafeRoute() {
               />
             </React.Fragment>
           ))}
+
+          {/* Dijkstra Safest Route */}
+          {dijkstraRoute && (
+            <React.Fragment>
+              <Polyline 
+                positions={dijkstraRoute} 
+                color="#a855f7" 
+                weight={12} 
+                opacity={0.4} 
+              />
+              <Polyline 
+                positions={dijkstraRoute} 
+                color="#a855f7" 
+                weight={6} 
+                opacity={1} 
+                dashArray="10, 10"
+              />
+            </React.Fragment>
+          )}
 
           {/* Simulated Fleet Vehicles */}
           {fleet.map((v) => {

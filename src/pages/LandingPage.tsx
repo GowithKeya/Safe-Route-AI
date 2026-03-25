@@ -100,8 +100,8 @@ export default function LandingPage() {
           }
         >
           <img
-            src="https://images.unsplash.com/photo-1587559070757-f72a388edbba?q=80&w=3840&auto=format&fit=crop"
-            alt="Emergency Response Ambulance"
+            src="https://images.unsplash.com/photo-1506501139174-099022df5260?q=80&w=3840&auto=format&fit=crop"
+            alt="Red Traffic Light"
             className="mx-auto rounded-2xl object-cover h-full object-center w-full"
             draggable={false}
           />

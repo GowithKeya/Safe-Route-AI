@@ -44,31 +44,59 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const createEmojiIcon = (emoji: string, size: number = 32) => {
+const createGoogleMarker = (bgColor: string, innerSvg: string, size: number = 32) => {
   return L.divIcon({
-    className: 'custom-emoji-icon',
-    html: `<div style="font-size: ${size}px; line-height: 1; text-align: center; display: flex; align-items: center; justify-content: center; width: ${size}px; height: ${size}px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));">${emoji}</div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-    popupAnchor: [0, -size / 2]
+    className: 'custom-google-marker',
+    html: `
+      <div style="position: relative; width: ${size}px; height: ${size * 1.25}px; display: flex; align-items: center; justify-content: center; transform: translateY(-${size * 0.25}px);">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512" style="position: absolute; width: 100%; height: 100%; fill: ${bgColor}; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));">
+          <path d="M172.268 501.67C26.97 291.031 0 269.413 0 192 0 85.961 85.961 0 192 0s192 85.961 192 192c0 77.413-26.97 99.031-172.268 309.67-9.535 13.774-29.93 13.773-39.464 0z"/>
+        </svg>
+        <div style="position: absolute; top: ${size * 0.2}px; color: white; width: ${size * 0.5}px; height: ${size * 0.5}px; display: flex; align-items: center; justify-content: center;">
+          ${innerSvg}
+        </div>
+      </div>
+    `,
+    iconSize: [size, size * 1.25],
+    iconAnchor: [size / 2, size * 1.25],
+    popupAnchor: [0, -(size * 1.25)]
   });
 };
 
-const getVehicleIcon = (type: string) => {
-  let emoji = '🚑'; // ambulance
-  if (type === 'fire') emoji = '🚒';
-  else if (type === 'police') emoji = '🚓';
-  else emoji = '🚗'; // user vehicle or other
-
-  return createEmojiIcon(emoji, 36);
+const svgs = {
+  cross: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
+  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  fire: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/></svg>',
+  h: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5v14M16 5v14M8 12h8"/></svg>',
+  rx: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18l-8-8M8 18l8-8M5 4h6a4 4 0 0 1 0 8H5V4z"/></svg>',
+  paw: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58-.42 7-.42 7 .57 1.07 1 2.24 1 3.44C21 17.9 16.97 21 12 21s-9-3.1-9-7.56c0-1.25.5-2.4 1-3.44 0 0-1.89-6.42-.5-7 1.39-.58 4.72.23 6.5 2.23A9.04 9.04 0 0 1 12 5Z"/><path d="M8 14v.5"/><path d="M16 14v.5"/><path d="M11.25 16.25h1.5L12 17l-.75-.75Z"/></svg>',
+  car: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>',
 };
 
-const customHospitalIcon = createEmojiIcon('🏥', 32);
-const customPharmacyIcon = createEmojiIcon('💊', 24);
-const customClinicIcon = createEmojiIcon('👨‍⚕️', 24);
-const customVetIcon = createEmojiIcon('🐕‍🦺', 24);
-const customPoliceIcon = createEmojiIcon('🚓', 32);
-const customAccidentIcon = createEmojiIcon('💥', 32);
+const getVehicleIcon = (type: string) => {
+  let innerSvg = svgs.cross;
+  let color = '#ef4444';
+  if (type === 'fire') {
+    innerSvg = svgs.fire;
+    color = '#f97316';
+  } else if (type === 'police') {
+    innerSvg = svgs.shield;
+    color = '#3b82f6';
+  } else if (type !== 'ambulance') {
+    innerSvg = svgs.car;
+    color = '#8b5cf6';
+  }
+
+  return createGoogleMarker(color, innerSvg, 36);
+};
+
+const customHospitalIcon = createGoogleMarker('#ef4444', svgs.h, 32);
+const customPharmacyIcon = createGoogleMarker('#10b981', svgs.rx, 28);
+const customClinicIcon = createGoogleMarker('#0ea5e9', svgs.cross, 28);
+const customVetIcon = createGoogleMarker('#f59e0b', svgs.paw, 28);
+const customPoliceIcon = createGoogleMarker('#3b82f6', svgs.shield, 32);
+const customAccidentIcon = createGoogleMarker('#eab308', svgs.alert, 32);
 
 const center: [number, number] = [28.6139, 77.2090]; // New Delhi
 
@@ -111,8 +139,9 @@ export default function Dashboard() {
   const [dynamicETA, setDynamicETA] = useState<string | null>(null);
   const [routeCalculated, setRouteCalculated] = useState(false);
   const [accidents, setAccidents] = useState<any[]>([
-    { lat: 28.62, lng: 77.21, desc: 'Accident Reported', time: '2 mins ago' }
+    { id: 'acc-1', lat: 28.62, lng: 77.21, desc: 'Accident Reported', time: '2 mins ago' }
   ]);
+  const [newIncidentAlert, setNewIncidentAlert] = useState<string | null>(null);
   const [reportingIncident, setReportingIncident] = useState(false);
   const [newIncidentLocation, setNewIncidentLocation] = useState<[number, number] | null>(null);
   const [newIncidentDesc, setNewIncidentDesc] = useState('');
@@ -912,7 +941,7 @@ export default function Dashboard() {
               </div>
               <div className="space-y-2">
                 {accidents.map((acc, i) => (
-                  <div key={i} className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex flex-col gap-2">
+                  <div key={acc.id || i} className={`border rounded-lg p-3 flex flex-col gap-2 transition-all duration-1000 ${newIncidentAlert === acc.id ? 'bg-red-500/30 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse' : 'bg-red-500/10 border-red-500/20'}`}>
                     <div className="flex items-start gap-3">
                       <AlertTriangle className="text-red-500 shrink-0" size={18} />
                       <div>
@@ -1097,8 +1126,11 @@ export default function Dashboard() {
                 <button 
                   onClick={() => {
                     if (newIncidentLocation && newIncidentDesc) {
-                      setAccidents([...accidents, { lat: newIncidentLocation[0], lng: newIncidentLocation[1], desc: newIncidentDesc, time: 'Just now' }]);
+                      const newAccId = `acc-${Date.now()}`;
+                      setAccidents([{ id: newAccId, lat: newIncidentLocation[0], lng: newIncidentLocation[1], desc: newIncidentDesc, time: 'Just now' }, ...accidents]);
                       setNotification({ message: `Incident reported: ${newIncidentDesc}`, type: 'success' });
+                      setNewIncidentAlert(newAccId);
+                      setTimeout(() => setNewIncidentAlert(null), 5000);
                       setReportingIncident(false);
                       setNewIncidentLocation(null);
                       setNewIncidentDesc('');
@@ -1135,8 +1167,8 @@ export default function Dashboard() {
           <MapController center={mapCenter} zoom={mapZoom} bounds={mapBounds} />
           <MapEvents reportingIncident={reportingIncident} setNewIncidentLocation={setNewIncidentLocation} />
           <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+            attribution='&copy; Google Maps'
           />
 
           {/* AI Traffic Prediction Overlay */}
@@ -1320,17 +1352,27 @@ export default function Dashboard() {
 
           {/* Accidents */}
           {accidents.map((acc, i) => (
-            <Marker key={`acc-${i}`} position={[acc.lat, acc.lng]} icon={customAccidentIcon}>
-              <Popup>
-                <div className="text-red-600 font-medium mb-2">{acc.desc}</div>
-                <button 
-                  onClick={() => handleDispatchNearest([acc.lat, acc.lng])}
-                  className="w-full py-1.5 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition-colors"
-                >
-                  Dispatch Nearest Unit
-                </button>
-              </Popup>
-            </Marker>
+            <React.Fragment key={`acc-${acc.id || i}`}>
+              {newIncidentAlert === acc.id && (
+                <CircleMarker
+                  center={[acc.lat, acc.lng]}
+                  radius={40}
+                  pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.2, weight: 2 }}
+                  className="animate-ping"
+                />
+              )}
+              <Marker position={[acc.lat, acc.lng]} icon={customAccidentIcon}>
+                <Popup>
+                  <div className="text-red-600 font-medium mb-2">{acc.desc}</div>
+                  <button 
+                    onClick={() => handleDispatchNearest([acc.lat, acc.lng])}
+                    className="w-full py-1.5 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition-colors"
+                  >
+                    Dispatch Nearest Unit
+                  </button>
+                </Popup>
+              </Marker>
+            </React.Fragment>
           ))}
 
           {/* Route */}
